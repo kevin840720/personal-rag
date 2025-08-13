@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyyaml = "*"
+pydantic = "*"
+python-dotenv = "*"
+elasticsearch = "<9,>=8"
+sqlalchemy = "*"
+psycopg = {extras = ["binary"], version = "*"}
+pgvector = "*"
+docling = "*"
+
+[dev-packages]
+pytest = "*"
+pylint = "*"
+chromadb = "*"
+
+[requires]
+python_version = "3.11"

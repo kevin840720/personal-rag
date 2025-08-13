@@ -1,0 +1,85 @@
+version: '3.9'
+
+networks:
+  net:
+    driver: bridge
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: personal-rag-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${MY_POSTGRE_USERNAME}
+      - POSTGRES_PASSWORD=${MY_POSTGRE_PASSWORD}
+      - POSTGRES_DB=${MY_POSTGRE_DB_NAME}
+    ports:
+      - "${MY_POSTGRE_PORT}:5432"
+    volumes:
+      - ./.database/postgres/data:/var/lib/postgresql/data
+      - ./.database/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - net
+
+  redis:
+    image: redis:7.4
+    container_name: personal-rag-redis
+    restart: always
+    env_file:
+      - ./.env
+    volumes:
+      - ./.database/redis/data:/data
+    command: ["redis-server", "--bind 0.0.0.0",                # 允許外部主機連接
+                              "--protected-mode yes",          # 拒絕沒有密碼（requirepass）且非本機的連線請求
+                              "--requirepass \"${MY_REDIS_PASSWORD}\"",
+                              "--maxmemory 1gb",               # 最大記憶體為 1GB
+                              "--maxmemory-policy allkeys-lru" # cache 淘汰策略 LRU（最近最少使用）算法
+                              ]
+    # 更多參數：https://redis.io/docs/latest/operate/oss_and_stack/management/config/
+    ports:
+      - '${MY_REDIS_PORT}:6379'
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.2
+    container_name: personal-rag-elasticsearch
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false  # 由於 Kibana 在設定權限上有些繁瑣，所以先將安全性設定停用，正式佈署時可以「不安裝 Kibana」，設定安全性為 true
+      - ELASTIC_PASSWORD=${MY_ELASTIC_PASSWORD}
+      - xpack.ml.use_auto_machine_memory_percent=true
+      - cluster.routing.allocation.disk.watermark.low=1gb  # 避免因 watermark warning 導致 shard 變唯讀狀態
+      - cluster.routing.allocation.disk.watermark.high=512mb
+      - cluster.routing.allocation.disk.watermark.flood_stage=256mb
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "${MY_ELASTIC_PORT}:9200"
+    volumes:  # 如果出現 Exit code 1，很有可能是權限問題
+      - ./.database/elastic/data:/usr/share/elasticsearch/data
+      - ./.database/elastic/logs:/usr/share/elasticsearch/logs
+    networks:
+      - net
+    deploy:
+      resources:
+        limits:
+          memory: 4GB  # 設定容器最大記憶體
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.17.2
+    container_name: personal-rag-kibana
+    restart: always
+    environment:
+      - ELASTICSEARCH_HOSTS=http://personal-rag-elasticsearch:9200
+    ports:
+      - ${MY_KIBANA_PORT}:5601
+    networks:
+      - net
