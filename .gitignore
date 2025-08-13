@@ -99,4 +99,7 @@ data/raw/*
 !data/interim
 !data/processed
 !data/**/.gitkeep
-.database
+.database/*
+!.database/postgres/
+!.database/postgres/init/
+!.database/postgres/init/01-create-vector.sql
