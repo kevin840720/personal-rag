@@ -15,7 +15,7 @@ from docx import Document as PyDocx
 from docling_core.types.doc.document import DoclingDocument
 
 from ingestion.base import LoaderResult
-from ingestion.file_loaders.docx import DoclingDocxLoader
+from ingestion.file_loaders.office_docx import DoclingDocxLoader
 from objects import FileType
 
 
