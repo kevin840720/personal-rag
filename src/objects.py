@@ -137,41 +137,6 @@ class PDFMetadata(DocumentMetadata):
                    producer=data.get("producer"),
                    )
 
-class Document(DoclingDocument):
-    id:UUID
-    content:str
-    metadata:DocumentMetadata
-    embedding:Optional[List[float]]=None  # TODO: remove this, already move to Chunk
-
-    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True)
-
-    def to_dict(self) -> Dict[str, Union[str,int,float,List,Dict]]:
-        """回傳字典格式"""
-        result = {'id': self.id,
-                  'metadata': self.metadata.to_dict(),
-                  'content': self.content,
-                  **self.export_to_dict()  # 確保 DoclingDocument 的屬性也被包含
-                  }
-        return result
-
-    @field_validator('content')
-    @classmethod
-    def validate_content(cls, v):
-        """確保內容不為空"""
-        if not v or not v.strip():
-            raise ValueError('文件內容不能為空')
-        return v.strip()
-
-    @field_validator('embedding')
-    @classmethod
-    def validate_embedding(cls, v):
-        """驗證 embedding 向量"""
-        if v is not None:
-            if not v:
-                raise ValueError('embedding 不能為空列表')
-            if not all(isinstance(x, (int, float)) for x in v):
-                raise ValueError('embedding 必須是數值列表')
-        return v
 
 class Chunk(BaseModel):
     id:UUID
