@@ -16,8 +16,8 @@ services:
     ports:
       - "${MY_POSTGRE_PORT}:5432"
     volumes:
-      - ./.database/postgres/data:/var/lib/postgresql/data
-      - ./.database/postgres/init:/docker-entrypoint-initdb.d
+      - ${VOLUME_PATH}/postgres/data:/var/lib/postgresql/data
+      - ${VOLUME_PATH}/postgres/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1"]
       interval: 10s
@@ -33,7 +33,7 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./.database/redis/data:/data
+      - ${VOLUME_PATH}/redis/data:/data
     command: ["redis-server", "--bind 0.0.0.0",                # 允許外部主機連接
                               "--protected-mode yes",          # 拒絕沒有密碼（requirepass）且非本機的連線請求
                               "--requirepass \"${MY_REDIS_PASSWORD}\"",
@@ -64,8 +64,8 @@ services:
     ports:
       - "${MY_ELASTIC_PORT}:9200"
     volumes:  # 如果出現 Exit code 1，很有可能是權限問題
-      - ./.database/elastic/data:/usr/share/elasticsearch/data
-      - ./.database/elastic/logs:/usr/share/elasticsearch/logs
+      - ${VOLUME_PATH}/elastic/data:/usr/share/elasticsearch/data
+      - ${VOLUME_PATH}/elastic/logs:/usr/share/elasticsearch/logs
     networks:
       - net
     deploy:

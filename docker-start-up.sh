@@ -3,6 +3,27 @@
 set -eo pipefail  # 遇到錯誤立即退出，pipe 失敗也會退出
 trap 'echo "腳本在第 $LINENO 行失敗"; exit 1' ERR
 
+# 讀取 .env
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# 如果路徑不是 ./.database，則複製 postgres init SQL
+if [ "$VOLUME_PATH" != "./.database" ]; then
+    SRC="./.database/postgres/init/01-create-vector.sql"
+    DEST="$VOLUME_PATH/postgres/init/01-create-vector.sql"
+
+    # 建立缺少的資料夾
+    mkdir -p "$(dirname "$DEST")"
+
+    # 複製檔案
+    cp "$SRC" "$DEST"
+    chmod 644 "$DEST"
+    echo "Docker volume 路徑不是 ./.database，已將 $SRC 複製到 $DEST"
+fi
+
 # 獲取 Elasticsearch 的 Container 名稱
 SERVICE_NAME="elasticsearch"
 CONTAINER_NAME=$(grep -E "container_name:\s*.*${SERVICE_NAME}.*" docker-compose.yaml | sed -E 's/.*container_name:\s*//')
@@ -22,21 +43,21 @@ fi
 
 
 # 當資料夾不存在，或使用者傳入 `--recreate` 參數時，重建 folder
-if [ ! -d "./.database/elastic/data" ] || [ "$1" == "--recreate" ]; then
+if [ ! -d "$VOLUME_PATH/elastic/data" ] || [ "$1" == "--recreate" ]; then
     echo "刪除並重建 Elasticsearch 資料夾..."
 
-    sudo rm -rf ./.database/elastic/data/
-    sudo rm -rf ./.database/elastic/logs/
+    sudo rm -rf $VOLUME_PATH/elastic/data/
+    sudo rm -rf $VOLUME_PATH/elastic/logs/
 
-    sudo mkdir -p ./.database/elastic/data
-    sudo mkdir -p ./.database/elastic/logs
+    sudo mkdir -p $VOLUME_PATH/elastic/data
+    sudo mkdir -p $VOLUME_PATH/elastic/logs
 fi
 
-sudo chmod -R 777 ./.database/elastic/data/
-sudo chmod -R 777 ./.database/elastic/logs/
+sudo chmod -R 777 $VOLUME_PATH/elastic/data/
+sudo chmod -R 777 $VOLUME_PATH/elastic/logs/
 
-sudo chown -R 1000:1000 ./.database/elastic/data/
-sudo chown -R 1000:1000 ./.database/elastic/logs/
+sudo chown -R 1000:1000 $VOLUME_PATH/elastic/data/
+sudo chown -R 1000:1000 $VOLUME_PATH/elastic/logs/
 
 # 啟動容器
 docker compose up -d
