@@ -14,6 +14,7 @@ import pytest
 from docx import Document as PyDocx
 from docling_core.types.doc.document import DoclingDocument
 
+from conftest import SKIP_REAL_FILE_TEST
 from ingestion.base import LoaderResult
 from ingestion.file_loaders.office_docx import DoclingDocxLoader
 from objects import FileType
@@ -38,7 +39,6 @@ def test_docx_path(tmp_path: Path) -> Path:  # pytest 內建 fixture，會提供
 
     doc.save(str(file_path))
     return file_path
-
 
 @pytest.fixture
 def test_docx_paths(tmp_path: Path) -> List[Path]:
@@ -74,23 +74,24 @@ def test_docx_paths(tmp_path: Path) -> List[Path]:
 
     return paths
 
-
 class TestDoclingDocxLoader:
     @pytest.fixture
     def docx_loader(self):
         return DoclingDocxLoader()
 
-    def test_load(self, docx_loader, test_docx_path: Path):
+    def test_load(self,
+                  docx_loader,
+                  test_docx_path:Path,
+                  ):
         results = docx_loader.load(test_docx_path)
         assert isinstance(results, list) and len(results) == 1
 
         res = results[0]
         assert isinstance(res, LoaderResult)
 
-        # metadata 檢查（Docx 版本使用 core_properties）
+        # 檢驗 metadata
         assert res.metadata.file_type == FileType.DOCX
         assert res.metadata.file_name == test_docx_path.name
-        # created_at / modified_at 由 python-docx core_properties 提供
         assert isinstance(res.metadata.created_at, datetime)
         assert isinstance(res.metadata.modified_at, datetime)
 
@@ -98,7 +99,10 @@ class TestDoclingDocxLoader:
         assert isinstance(res.content, str) and "測試文件" in res.content
         assert isinstance(res.doc, DoclingDocument)
 
-    def test_load_multi(self, docx_loader, test_docx_paths: List[Path]):
+    def test_load_multi(self,
+                        docx_loader,
+                        test_docx_paths:List[Path],
+                        ):
         # 依 markdown 測試邏輯，假設 loader 有提供 load_multi(paths) -> List[LoaderResult]
         results = docx_loader.load_multi(test_docx_paths)
 
@@ -118,4 +122,26 @@ class TestDoclingDocxLoader:
             assert isinstance(res.content, str) and "測試" in res.content
             assert isinstance(res.doc, DoclingDocument)
 
-    # TODO: def test_load_real(self, docx_loader):
+    @pytest.mark.skipif(SKIP_REAL_FILE_TEST, reason="Skipping real file tests")
+    def test_load_real(self,
+                       docx_loader,
+                       ):
+        """檢驗讀取實際 docx 檔案時，有沒有報錯
+        使用不同檔案時，可能需要調整一下測試內容
+        """
+        file_path = Path("./tests/data/RAG測試文件.docx")
+        results = docx_loader.load(file_path)
+        assert isinstance(results, list) and len(results) == 1
+
+        res = results[0]
+        assert isinstance(res, LoaderResult)
+
+        # 檢驗 metadata
+        assert res.metadata.file_type == FileType.DOCX
+        assert res.metadata.file_name == file_path.name
+        assert isinstance(res.metadata.created_at, datetime)
+        assert isinstance(res.metadata.modified_at, datetime)
+
+        # content 與 doc 基本檢查（包含原文關鍵字）
+        assert isinstance(res.content, str) and "機票資訊" in res.content
+        assert isinstance(res.doc, DoclingDocument)

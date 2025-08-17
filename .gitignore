@@ -104,3 +104,8 @@ data/raw/*
 !.database/postgres/init/
 !.database/postgres/init/01-create-vector.sql
 server.htpasswd
+tests/data/*
+models/*
+!models/ocr/
+models/ocr/*
+!models/ocr/PPv5-download-guide.md

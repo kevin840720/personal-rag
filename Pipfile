@@ -13,6 +13,8 @@ psycopg = {extras = ["binary"], version = "*"}
 pgvector = "*"
 docling = "*"
 pypdf = "*"
+rapidocr-onnxruntime = "*"
+onnxruntime-gpu = "*"
 
 [dev-packages]
 pytest = "*"

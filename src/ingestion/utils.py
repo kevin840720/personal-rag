@@ -137,7 +137,7 @@ class JSONTableSerializer(BaseTableSerializer):
             for i, sub in enumerate(self._split_df(df.copy(), by="index", batch_size=batch), 1):
                 txt = sub.to_json(orient="records", force_ascii=False, indent=2)
                 parts.append(f"Table Part {i:03d}\n{txt}")
-        result = "\n\n".join(parts).encode('utf-8').decode('unicode_escape')
+        result = "\n\n".join(parts)
         return create_ser_result(text=result, span_source=item)
 
 class UserDefinedDocSerializer(MarkdownDocSerializer):

@@ -6,14 +6,14 @@
 @Desc    :  用 Docling 處理 PDF，產出 LoaderResult
 """
 
-from enum import Enu
+# from enum import Enu
 from typing import (List,
+                    Literal,
                     Union,
                     )
 from pathlib import Path
 import os
 import re
-import uuid
 
 from pypdf import PdfReader
 from docling.document_converter import DocumentConverter
@@ -21,8 +21,7 @@ from docling.document_converter import DocumentConverter
 from pypdf import PdfReader
 from ingestion.base import DocumentLoader, LoaderResult
 from ingestion.utils import export_to_user_text
-from objects import (
-                     DocumentMetadata,
+from objects import (DocumentMetadata,
                      FileType,
                      PDFSourceType,
                      PDFMetadata,
@@ -55,25 +54,40 @@ class DoclingPDFLoader(DocumentLoader):
             PDFSourceType.LO_CALC: re.compile(r'(?=.*LibreOffice)(?=.*Calc)', re.IGNORECASE),
         }
 
-    def _get_docling_ocr_option(self):
+    def _get_docling_ocr_option(self, ocr_model:Literal["PPv4", "PPv5"]="PPv5"):
         from huggingface_hub import snapshot_download
         from docling.datamodel.pipeline_options import RapidOcrOptions  # Docling 中，唯一支援中文
         
-        # Download RappidOCR models from HuggingFace
-        print("Downloading RapidOCR models")
-        download_path = snapshot_download(repo_id="SWHL/RapidOCR")
-        
-        # Setup RapidOcrOptions for english detection
-        # PP-OCRv5 已經在 2025.06.05 釋出，近期可以多關注是否被轉移到 HuggingFace
-        det_model_path = os.path.join(download_path, "PP-OCRv4", "ch_PP-OCRv4_det_infer.onnx")
-        rec_model_path = os.path.join(download_path, "PP-OCRv4", "ch_PP-OCRv4_rec_infer.onnx")
-        cls_model_path = os.path.join(download_path, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx")
-        ocr_options = RapidOcrOptions(lang=['chinese'],
-                                      force_full_page_ocr=False,
-                                      det_model_path=det_model_path,
-                                      rec_model_path=rec_model_path,
-                                      cls_model_path=cls_model_path,
-                                      )
+        if ocr_model == "PPv5":
+            # det, rec 模型為手動下載，參見  TODO: 改成 Github 路徑
+            print("Downloading RapidOCR models")
+            download_path = snapshot_download(repo_id="SWHL/RapidOCR")
+            cls_model_path = os.path.join(download_path, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx")
+            ocr_options = RapidOcrOptions(lang=["english", "chinese", "japanese"],  # Docling 說這參數沒用
+                                          force_full_page_ocr=False,
+                                          det_model_path="./models/ocr/PP-OCRv5_server_det/inference.onnx",
+                                          rec_model_path="./models/ocr/PP-OCRv5_server_rec/inference.onnx",
+                                          cls_model_path=cls_model_path,
+                                          rec_keys_path="./models/ocr/PP-OCRv5_server_rec/chars.txt"
+                                          )
+        elif ocr_model == "PPv4":
+            # Download RappidOCR models from HuggingFace
+            print("Downloading RapidOCR models")
+            download_path = snapshot_download(repo_id="SWHL/RapidOCR")
+            
+            # Setup RapidOcrOptions for english detection: https://zhuanlan.zhihu.com/p/28420781780
+            # PP-OCRv5 已經在 2025.06.05 釋出，近期可以多關注是否被轉移到 HuggingFace
+            det_model_path = os.path.join(download_path, "PP-OCRv4", "ch_PP-OCRv4_det_infer.onnx")
+            rec_model_path = os.path.join(download_path, "PP-OCRv4", "ch_PP-OCRv4_rec_infer.onnx")
+            cls_model_path = os.path.join(download_path, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx")
+            ocr_options = RapidOcrOptions(lang=["english", "chinese", "japanese"],  # Docling 說這參數沒用
+                                          force_full_page_ocr=False,
+                                          det_model_path=det_model_path,
+                                          rec_model_path=rec_model_path,
+                                          cls_model_path=cls_model_path,
+                                          )
+        else:
+            raise AttributeError("Unsupported Model")
         return ocr_options
 
     def _load_converter(self) -> DocumentConverter:
