@@ -18,7 +18,6 @@ from objects import DocumentMetadata, FileType
 
 from datetime import datetime
 from docling.document_converter import DocumentConverter
-from docling_core.types.io import DocumentStream
 
 class DoclingMarkdownLoader(DocumentLoader):
     """Use docling to process Markdown files into LoaderResult objects"""

@@ -25,9 +25,9 @@ src/
 ├── preprocess/                   # 前處理（極簡清理）
 │   ├── __init__.py
 │   └── cleaners.py               # 去 boilerplate、語言偵測（可選）
-├── segment/                      # ← Docling 只活在這
+├── chunking/                     # ← Docling 只活在這
 │   ├── __init__.py
-│   └── docling_chunk.py          # Docling 讀檔+階層切塊+contextualize 薄包裝
+│   └── docling.py                # Docling 讀檔+階層切塊+contextualize 薄包裝
 ├── postprocess/                  # 後處理（可選）
 │   ├── __init__.py
 │   └── answer_filters.py         # 來源標註/去重/片段拼接規則
