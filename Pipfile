@@ -16,6 +16,7 @@ pypdf = "*"
 rapidocr-onnxruntime = "*"
 onnxruntime-gpu = "*"
 tiktoken = "*"
+redis = "*"
 
 [dev-packages]
 pytest = "*"
