@@ -6,7 +6,9 @@
 @Desc    :
 """
 
-from typing import List
+from typing import (Generator,
+                    List,
+                    )
 from uuid import uuid4
 import os
 
@@ -26,7 +28,7 @@ from objects import (Chunk,
 load_dotenv()
 
 @pytest.fixture
-def store() -> ElasticsearchBM25Store:
+def store() -> Generator[ElasticsearchBM25Store, None, None]:
     """建立測試用的 ElasticsearchBM25Store 實例"""
     store = ElasticsearchBM25Store(host=os.getenv("MY_ELASTIC_HOST", "localhost"),
                                    port=int(os.getenv("MY_ELASTIC_PORT", "9200")),

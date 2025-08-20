@@ -7,21 +7,27 @@
 """
 
 import os
-from typing import List
+from typing import (Generator,
+                    List,
+                    )
 from uuid import uuid4
-from sqlalchemy import text
+
 from dotenv import load_dotenv
+from sqlalchemy import text
 import pytest
 import numpy as np
 
 from conftest import SKIP_PGVECTOR_TESTS
 from infra.stores.pgvector import PGVectorStore
-from objects import Chunk, DocumentMetadata, FileType
+from objects import (Chunk,
+                     DocumentMetadata,
+                     FileType,
+                     )
 
 load_dotenv()
 
 @pytest.fixture(scope="function")
-def store() -> PGVectorStore:
+def store() -> Generator[PGVectorStore, None, None]:
     """建立測試用的 PGVectorStore 實例"""
     schema_name = f"test_schema_{uuid4()}"  # 每次測試使用不同的 index
     store = PGVectorStore(host=os.getenv("MY_POSTGRE_HOST", "localhost"),
