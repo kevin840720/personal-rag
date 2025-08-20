@@ -15,6 +15,7 @@ docling = "*"
 pypdf = "*"
 rapidocr-onnxruntime = "*"
 onnxruntime-gpu = "*"
+tiktoken = "*"
 
 [dev-packages]
 pytest = "*"

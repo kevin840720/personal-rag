@@ -6,9 +6,6 @@
 @Desc: 自定義物件
 """
 
-from abc import (ABC,
-                 abstractmethod,
-                 )
 from datetime import datetime
 from enum import Enum
 from typing import (Any,
@@ -18,14 +15,11 @@ from typing import (Any,
                     Union,
                     )
 from uuid import UUID
+import warnings
 
-from docling_core.transforms.chunker import DocChunk
-from docling_core.types.doc.document import DoclingDocument
 from pydantic import (ConfigDict,
-                      Field,
                       field_validator,
                       )
-from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 
 class FileType(Enum):
@@ -143,7 +137,20 @@ class Chunk(BaseModel):
     content:str
     metadata:DocumentMetadata
     embedding:Optional[List[float]]=None
-    _doc_chunk:Optional[DocChunk]=None
+    __raw_chunk:Optional[Any]=None
+
+    @property
+    def _raw_chunk(self):
+        warnings.warn(
+            "_raw_chunk 為備份欄位，僅應在 chunking 階段或 debugging 時使用",
+            UserWarning,
+            stacklevel=2,
+        )
+        return self.__raw_chunk
+
+    @_raw_chunk.setter
+    def _raw_chunk(self, value):
+        self.__raw_chunk = value
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
