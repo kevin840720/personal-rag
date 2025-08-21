@@ -17,6 +17,8 @@ rapidocr-onnxruntime = "*"
 onnxruntime-gpu = "*"
 tiktoken = "*"
 redis = "*"
+openai = "*"
+pytest-mock = "*"
 
 [dev-packages]
 pytest = "*"

@@ -33,7 +33,7 @@ from cache.errors import (CacheError,
 
 class RedisCacheHandler(BaseCacheHandler):
     """Redis-based cache implementation"""
-    def __init__(self, 
+    def __init__(self,
                  host:str="localhost",
                  port:int=36379,
                  password:Optional[str]=None,
@@ -157,8 +157,8 @@ class RedisCacheHandler(BaseCacheHandler):
             raise RedisCacheError(f"Redis error occurred while performing batch set: {err}") from err
 
     def delete(self,
-               key: str,
-               namespace: Optional[str] = "",
+               key:str,
+               namespace:Optional[str] = "",
                ) -> None:
         """Delete a key from Redis cache.
         

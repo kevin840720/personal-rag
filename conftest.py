@@ -19,6 +19,7 @@ SKIP_ELASTICSEARCH_TESTS = False
 SKIP_PGVECTOR_TESTS = False
 SKIP_REAL_FILE_TEST = False
 SKIP_REDIS_TESTS = False
+SKIP_TESTS_USE_EXTERNAL_API_TESTS = False
 
 src_path = Path(__file__).parent.joinpath('src')
 sys.path.append(src_path.__str__())
