@@ -43,9 +43,14 @@ from objects import (DocumentMetadata,
 from pypdf import PdfReader
 
 class DoclingPDFLoader(DocumentLoader):
-    def __init__(self):
+    def __init__(self,
+                 do_ocr:bool=True,
+                 do_table_structure:bool=True,
+                 ):
         super().__init__()
-        self.converter: DocumentConverter = self._load_converter()
+        self.converter: DocumentConverter = self._load_converter(do_ocr=do_ocr,
+                                                                 do_table_structure=do_table_structure,
+                                                                 )
         self._pattern = {
             PDFSourceType.MS_EXCEL: re.compile(r"Microsoft.+Excel"),
             PDFSourceType.MS_WORD: re.compile(r"Microsoft.+Word"),
@@ -60,6 +65,7 @@ class DoclingPDFLoader(DocumentLoader):
         
         if ocr_model == "PPv5":
             # det, rec 模型為手動下載，參見  TODO: 改成 Github 路徑
+            print(os.getcwd())
             print("Downloading RapidOCR models")
             download_path = snapshot_download(repo_id="SWHL/RapidOCR")
             cls_model_path = os.path.join(download_path, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx")
@@ -90,7 +96,10 @@ class DoclingPDFLoader(DocumentLoader):
             raise AttributeError("Unsupported Model")
         return ocr_options
 
-    def _load_converter(self) -> DocumentConverter:
+    def _load_converter(self,
+                        do_ocr:bool=True,
+                        do_table_structure:bool=True,
+                        ) -> DocumentConverter:
         from docling.backend.docling_parse_v4_backend import DoclingParseV4DocumentBackend
         from docling.datamodel.pipeline_options import (PdfPipelineOptions,
                                                         TableFormerMode,
@@ -100,11 +109,19 @@ class DoclingPDFLoader(DocumentLoader):
         from docling.pipeline.standard_pdf_pipeline import StandardPdfPipeline
 
         pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = True  # Force full page OCR
-        pipeline_options.ocr_options = self._get_docling_ocr_option()
-        pipeline_options.do_table_structure = True  # Same as default
-        pipeline_options.table_structure_options.do_cell_matching = True  # Same as default
-        pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE  # Same as default
+        if do_ocr:
+            pipeline_options.do_ocr = True
+            pipeline_options.ocr_options = self._get_docling_ocr_option()
+        else:
+            pipeline_options.do_ocr = False
+
+        if do_table_structure:
+            pipeline_options.do_table_structure = True  # Same as default
+            pipeline_options.table_structure_options.do_cell_matching = True  # Same as default
+            pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE  # Same as default
+        else:
+            pipeline_options.do_table_structure = False
+            pipeline_options.table_structure_options.do_cell_matching = False   
 
         format_options = {
             InputFormat.PDF: FormatOption(pipeline_cls=StandardPdfPipeline,

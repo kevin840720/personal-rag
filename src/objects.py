@@ -28,6 +28,7 @@ class FileType(Enum):
     DOCX="docx"
     XLSX="xlsx"
     MARKDOWN="markdown"
+    IMAGE="image"
 
 class PDFSourceType(str, Enum):  # TODO: 考慮要不要與 FileType 合併
     UNKNOWN = "unknown"
