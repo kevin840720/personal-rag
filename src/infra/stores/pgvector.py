@@ -33,7 +33,7 @@ def make_vector_chunk_class(base, schema:str):
         chunk_id = mapped_column(PGUUID(as_uuid=True), primary_key=True)
         content = mapped_column(Text, nullable=False)
         chunk_metadata = mapped_column(JSONB, nullable=False)
-        embedding = mapped_column(Vector(1536))  # NOTE: 留意此處 dim 寫死
+        embedding = mapped_column(Vector(1536))  # TODO: 留意此處 dim 寫死
     return VectorChunk
 
 class PGVectorStore(VectorIndexStore):
