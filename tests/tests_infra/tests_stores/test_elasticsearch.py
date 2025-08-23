@@ -15,7 +15,6 @@ import os
 from dotenv import load_dotenv
 import numpy as np
 import pytest
-from elasticsearch.exceptions import NotFoundError
 
 from conftest import SKIP_ELASTICSEARCH_TESTS
 from infra.stores.elasticsearch import ElasticsearchBM25Store

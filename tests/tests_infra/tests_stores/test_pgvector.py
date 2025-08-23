@@ -17,7 +17,7 @@ from sqlalchemy import text
 import pytest
 import numpy as np
 
-from conftest import SKIP_PGVECTOR_TESTS
+from conftest import SKIP_POSTGRES_TESTS
 from infra.stores.pgvector import PGVectorStore
 from objects import (Chunk,
                      DocumentMetadata,
@@ -73,7 +73,7 @@ def sample_chunks() -> List[Chunk]:
                           ))
     return docs
 
-@pytest.mark.skipif(SKIP_PGVECTOR_TESTS, reason="Skipping PGVector tests")
+@pytest.mark.skipif(SKIP_POSTGRES_TESTS, reason="Skipping PGVector tests")
 class TestPGVectorStore:
     def test_add_single_document(self,
                                  store:PGVectorStore,

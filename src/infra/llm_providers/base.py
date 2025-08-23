@@ -6,14 +6,19 @@
 @Desc    :  None
 """
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Dict, List, Optional, Any
-from dataclasses import dataclass
+from typing import (Any,
+                    AsyncGenerator,
+                    Dict,
+                    List,
+                    Optional,
+                    )
+
 from pydantic import BaseModel
 
 class ChatMessage(BaseModel):
     role:str
     content:str
-    metadata:Optional[Dict[str,Any]] = None
+    metadata:Optional[Dict[str,Any]]=None
 
 class LLMConfig(BaseModel):
     model_name:str
