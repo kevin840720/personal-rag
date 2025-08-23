@@ -57,7 +57,6 @@ class JSONTableSerializerProvider(ChunkingSerializerProvider):
         )
 
 class DoclingChunkProcessor(ChunkProcessor):
-    """Docling-based document chunk processor implementation"""
     """
     ✅ Docling 分割邏輯總結
 
@@ -131,7 +130,8 @@ class DoclingChunkProcessor(ChunkProcessor):
             chunk_doc = Chunk(id=uuid.uuid5(uuid.NAMESPACE_DNS, str(chunk_obj.model_dump_json())+str(chunk_meta.model_dump_json())),
                               content=chunk_obj.text,
                               metadata=chunk_meta,
-                              _doc_chunk=chunk_obj,
+                              _raw_chunk=chunk_obj,
                               )
+            chunk_doc._raw_chunk=chunk_obj
             chunk_docs.append(chunk_doc)
         return chunk_docs

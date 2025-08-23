@@ -138,7 +138,7 @@ class Chunk(BaseModel):
     content:str
     metadata:DocumentMetadata
     embedding:Optional[List[float]]=None
-    __raw_chunk:Optional[Any]=None
+    __raw_chunk:Optional[Any]=None  # NOTE: 考慮改用 _raw_chunk:Optional[Any]=PrivateAttr(default=None) ?
 
     @property
     def _raw_chunk(self):

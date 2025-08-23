@@ -33,7 +33,7 @@ def make_vector_chunk_class(base, schema:str):
         chunk_id = mapped_column(PGUUID(as_uuid=True), primary_key=True)
         content = mapped_column(Text, nullable=False)
         chunk_metadata = mapped_column(JSONB, nullable=False)
-        embedding = mapped_column(Vector(1536))
+        embedding = mapped_column(Vector(1536))  # NOTE: 留意此處 dim 寫死
     return VectorChunk
 
 class PGVectorStore(VectorIndexStore):
@@ -99,15 +99,17 @@ class PGVectorStore(VectorIndexStore):
                                          ))
             session.commit()
 
-    def search(self, query_embedding: Sequence[float], top_k: int = 5) -> List[SearchHit]:
+    def search(self,
+               query_embedding:Sequence[float],
+               top_k:int=5,
+               ) -> List[SearchHit]:
         with self.Session() as session:
-            stmt = (
-                select(self.VectorChunk,
-                       self.VectorChunk.embedding.l2_distance(query_embedding).label("score")
-                       )
-                .order_by("score")  # 距離小的在前面
-                .limit(top_k)
-            )
+            stmt = (select(self.VectorChunk,
+                           self.VectorChunk.embedding.l2_distance(query_embedding).label("score")
+                           )
+                    .order_by("score")  # 距離小的在前面
+                    .limit(top_k)
+                    )
             rows = session.execute(stmt).all()
 
         return [SearchHit(chunk=Chunk(id=row.VectorChunk.chunk_id,
