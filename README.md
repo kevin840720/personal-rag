@@ -2,11 +2,35 @@
 
 Personal RAG, for japanese learning, math/statistic notes and other documents.
 
-## Installation Method
-tbd;
+## 啟動 MCP Server 並接到 Open WebUI
 
-## How to use
-tbd;
+### 需求
+
+- Python 3.10+、`pipenv`
+- 已安裝 `mcpo`：`pipenv install mcpo`
+- Open WebUI（具「Add Tool Server / OpenAPI」功能）
+
+### 啟動
+
+```bash
+pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py
+```
+
+### 驗證
+
+```bash
+curl http://localhost:56485/openapi.json | jq '.paths'
+```
+
+看到有工具相關的路徑（非空）即表示正常。
+
+### 在 Open WebUI 設定
+
+1. 開啟：**Settings → Tools → Add Tool Server**  
+2. 類型：**OpenAPI**  
+3. URL：`http://localhost:56485`  
+4. 儲存後應可看到工具清單
+
 
 ## Project Organization
 
