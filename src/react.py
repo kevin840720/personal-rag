@@ -3,7 +3,8 @@
 @File    :  langchain_react.py
 @Time    :  2025/08/23 21:52:37
 @Author  :  Kevin Wang
-@Desc    :  ReACT Agent
+@Desc    :  FIXME: 與 MCP 無關 (可以刪除)，考慮如何把 ReAct 融入 Japanese Learning RAG Tools
+            ReACT Agent
             ├── LLM Provider
             ├── Tool Manager
             ├── Memory/Session Manager 
@@ -23,7 +24,10 @@ from langchain import hub
 from langchain_community.tools import DuckDuckGoSearchRun
 
 class LangChainOpenAIReactAgent:
-    def __init__(self, openai_api_key: str = None, mcp_service_url: str = "http://localhost:56485"):
+    def __init__(self,
+                 openai_api_key:str=None,
+                 mcp_service_url:str="http://localhost:56485",
+                 ):
         """初始化 LangChain ReACT Agent"""
         
         # 設置 OpenAI API Key
@@ -168,7 +172,7 @@ class LangChainOpenAIReactAgent:
             tools=self.tools,
             verbose=True,
             handle_parsing_errors=True,
-            max_iterations=10
+            max_iterations=3
         )
 
 
