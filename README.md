@@ -88,3 +88,41 @@ personal-rag/
     ├── objects.py                    # Document/Chunk 等核心資料型別
     └── react.py                      # LangChain ReACT Agent
 ```
+
+## 備註
+
+### OCR 模型超量佔用 GPU 空間
+
+TL;DR: **如果你頻繁 OOM，再用 CPU Inference，不要用 GPU**，實測 GPU 對 20 image 預測約 35s (含載入)，CPU 要 90 秒
+
+#### onnx 佔用 GPU 暫時難以解決
+
+專案中所使用的 OCR 模型是用 .onnx 檔，而無論模型多大， `ONNXRuntime` 為了效能，會在啟動前先劃分一個很大的空間給模型。</br>
+可以透過以下 code 關閉此機制，但可能造成效能下降，甚至卡住不動。
+
+```python
+import onnxruntime as ort
+so = ort.SessionOptions()
+so.enable_mem_pattern = False
+so.enable_mem_reuse = False
+session = ort.InferenceSession('your_model.onnx', providers=['CUDAExecutionProvider'], sess_options=so)
+```
+
+- Note: PyTorch 是 lazy allocation、用多少分多少、動態增減，ONNXRuntime 傾向分一大塊做池，方便快取與併發。
+- Reference: [[Performance] Find out why the GPU memory allocated with CUDAExecutionProvider is much larger than the ONNX size #14526](https://github.com/microsoft/onnxruntime/issues/14526)
+
+#### RapidOCR 無法手動限制 GPU 用量
+
+當前版本是使用 rapidocr_onnxruntime，此模型有2個缺點
+
+1. 沒有開放上一節中方法的接口，你要做只能修改 RapidOCR 的 source code
+2. rapidocr_onnxruntime 對 GPU 的支援更差([Link](https://rapidai.github.io/RapidOCRDocs/install_usage/rapidocr/install/#_2))，建議改用 rapidocr_paddle 。很不幸，docling 是用 rapidocr_onnxruntime。
+
+```text
+请使用Python3.6及以上版本。
+rapidocr_onnxruntime系列库目前仅在CPU上支持较好，GPU上推理很慢，这一点可参考link。因此不建议用onnxruntime-gpu版推理。
+GPU端推理推荐用rapidocr_paddle
+```
+
+Note: Docling 呼叫 RapidOCR 的程式碼在 `docling.models.rapid_ocr_model` Line 45，你可以通過修改 Line 54 `use_cuda = False` 來強迫 RapidOCR 用 CPU
+
