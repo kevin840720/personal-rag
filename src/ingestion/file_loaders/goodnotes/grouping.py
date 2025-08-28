@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from .types import RecognitionResult, GroupItem, GroupedCorpus
 from .ops import Clustering, Geometry
@@ -14,7 +14,7 @@ def group_into_corpus(rec: RecognitionResult) -> GroupedCorpus:
         y_center = (y0 + y1) / 2
         items.append(
             {
-                "img": r.crop.page.page_id,
+                "img": f"{r.crop.page.filename}-p{r.crop.page.page}",  # TODO: 似乎沒使用？
                 "rec_text": r.text,
                 "x_min": x0,
                 "x_max": x1,
@@ -26,29 +26,32 @@ def group_into_corpus(rec: RecognitionResult) -> GroupedCorpus:
             }
         )
 
-    groups = Clustering.cluster_by_overlap(items, height_ratio=2.0, width_ratio=None)
+    # Clustering.overlap 現在接受 bbox tuple，並回傳索引群組
+    bboxes:List[Tuple[float,float,float,float]] = [
+        (d["x_min"], d["y_min"], d["x_max"], d["y_max"]) for d in items
+    ]
+    groups_idx = Clustering.overlap(bboxes, height_ratio=2.0, width_ratio=None)
 
-    def group_key(g):
-        min_y = min(item["y_center"] for item in g)
-        min_x = min(item["x_center"] for item in g if item["y_center"] == min_y)
+    def group_key(idxs: List[int]) -> Tuple[float, float]:
+        min_y = min(items[i]["y_center"] for i in idxs)
+        min_x = min(items[i]["x_center"] for i in idxs if items[i]["y_center"] == min_y)
         return (min_y, min_x)
 
-    groups_sorted = sorted(groups, key=group_key)
+    groups_sorted = sorted(groups_idx, key=group_key)
     result_groups: List[GroupItem] = []
     all_contents: List[str] = []
-    for g in groups_sorted:
-        g_sorted = sorted(g, key=lambda d: (d["y_center"], d["x_center"]))
-        rects = [it["rectangle"] for it in g_sorted]
-        texts = [it["rec_text"] for it in g_sorted]
+    for g_idxs in groups_sorted:
+        g_sorted_idxs = sorted(g_idxs, key=lambda i: (items[i]["y_center"], items[i]["x_center"]))
+        rects = [items[i]["rectangle"] for i in g_sorted_idxs]
+        texts = [items[i]["rec_text"] for i in g_sorted_idxs]
         all_contents.extend(texts)
         result_groups.append(
             GroupItem(
-                box=g_sorted[0]["rectangle"],
+                box=items[g_sorted_idxs[0]]["rectangle"],
                 contents=texts,
-                rectangles={"counts": len(g_sorted), "items": rects},
+                rectangles={"counts": len(g_sorted_idxs), "items": rects},
             )
         )
 
     content = "\n".join(all_contents)
     return GroupedCorpus(content=content, group=result_groups)
-

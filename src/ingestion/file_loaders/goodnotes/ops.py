@@ -454,22 +454,30 @@ class Clustering:
 class PdfOps:
     """和 PDF 轉圖有關的工具。"""
     @classmethod
-    def pdf_page_images(
-        cls,
-        pdf_path: Union[str, Path],
-        dpi: int = 600,
-        fmt: str = "PNG",
-        thread_count: int = 1,
-    ) -> Iterator[PageImage]:
-        """Converts a PDF to per-page images and yields them one by one.
+    def pdf_page_images(cls,
+                        pdf_path:Union[str,Path],
+                        dpi:int=600,
+                        fmt:str="PNG",
+                        thread_count:int=1,
+                        ) -> Iterator[PageImage]:
+        """把 PDF 逐頁轉成影像並逐一產生。
 
-        - `dpi` defaults to 600 (semantic), actual conversion uses `run_dpi` (default 1000).
-        - After each yield, closes intermediate images and hints GC to reduce memory.
+        Args:
+            pdf_path (Union[str, Path]): PDF 檔案路徑。
+            dpi (int, optional): 轉圖解析度（傳遞給 pdf2image）。預設 600。
+            fmt (str, optional): 影像格式字串；會以小寫形式傳給 pdf2image（例如 "png"）。預設 "PNG"。
+            thread_count (int, optional): pdf2image 轉換用的執行緒數。預設 1。
+
+        Yields:
+            PageImage: 每頁一張影像；`filename` 為檔名，`page` 為 1 起算頁碼，`variant` 為 "full"。
+
+        Notes:
+            - 若 `pdfinfo_from_path` 失敗或回報頁數 <= 0，則不產生任何項目。
+            - 每次輸出後會關閉中間影像並呼叫 `gc.collect()`，降低記憶體壓力。
         """
         from pdf2image import convert_from_path, pdfinfo_from_path  # lazy import
 
         pdf_path = Path(pdf_path)
-        stem = pdf_path.stem
 
         try:
             info = pdfinfo_from_path(str(pdf_path))
@@ -482,14 +490,13 @@ class PdfOps:
 
         for page_num in range(1, total_pages + 1):
             try:
-                images = convert_from_path(
-                    str(pdf_path),
-                    dpi=dpi,
-                    fmt=fmt.lower(),
-                    first_page=page_num,
-                    last_page=page_num,
-                    thread_count=thread_count,
-                )
+                images = convert_from_path(str(pdf_path),
+                                           dpi=dpi,
+                                           fmt=fmt.lower(),
+                                           first_page=page_num,
+                                           last_page=page_num,
+                                           thread_count=thread_count,
+                                           )
             except Exception:
                 images = []
 
@@ -498,10 +505,14 @@ class PdfOps:
 
             src_img = images[0]
             out_img = src_img.copy()
-            page_id = f"{stem}-p{page_num}"
+            # Page identity now split into filename + page index
 
             try:
-                yield PageImage(image=out_img, page_id=page_id, variant="full")
+                yield PageImage(image=out_img,
+                                filename=pdf_path.name,
+                                page=page_num,
+                                variant="full",
+                                )
             finally:
                 try:
                     src_img.close()

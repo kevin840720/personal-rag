@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from PIL import Image
 import numpy as np
 
-from ingestion.file_loaders.goodnotes.ops import ImageOps, Geometry, Clustering
+from ingestion.file_loaders.goodnotes.ops import ImageOps, Geometry, Clustering, PdfOps
 
 
 def make_image_file(arr:np.ndarray,
@@ -274,3 +274,76 @@ class TestClustering:
         c = (100, 100, 110, 110)
         groups = Clustering.overlap([a, b, c])
         assert sorted(sorted(g) for g in groups) == [[0, 1], [2]]
+
+
+class TestPdfOps:
+    def test_pdf_page_images_mock(self, monkeypatch):
+        # 用假的 pdf2image（不依賴 poppler）來控制輸出，讓測試快速、可重現；
+        # 我們只驗證流程、參數傳遞與逐頁輸出，不測渲染品質。
+        from types import ModuleType
+        from PIL import Image as PILImage
+        from pypdf import PdfWriter
+        from tempfile import TemporaryDirectory
+
+        # Prepare a 3-page PDF in a temp dir
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            pdf_path = tmpdir / "demo.pdf"
+            writer = PdfWriter()
+            for _ in range(3):
+                writer.add_blank_page(width=200, height=200)
+            with open(pdf_path, "wb") as f:
+                writer.write(f)
+
+            # 以假模組取代 pdf2image：記錄呼叫參數並回傳小圖，避開外部依賴
+            fake = ModuleType("pdf2image")
+            calls = []
+
+            def fake_pdfinfo_from_path(path):
+                return {"Pages": 3}
+
+            def fake_convert_from_path(path, dpi, fmt, first_page, last_page, thread_count):
+                calls.append((dpi, fmt, first_page, last_page, thread_count))
+                img = PILImage.new("RGB", (10, 10), color=(255, 255, 255))
+                return [img]
+
+            fake.pdfinfo_from_path = fake_pdfinfo_from_path
+            fake.convert_from_path = fake_convert_from_path
+
+            import sys as _sys
+            monkeypatch.setitem(_sys.modules, "pdf2image", fake)
+
+            out = list(PdfOps.pdf_page_images(pdf_path,
+                                              dpi=123,
+                                              fmt="PNG",
+                                              thread_count=2,
+                                              ))
+
+            assert len(out) == 3
+            assert out[0].filename == "demo.pdf" and out[0].page == 1
+            assert out[-1].filename == "demo.pdf" and out[-1].page == 3
+            assert calls == [(123, "png", 1, 1, 2),
+                             (123, "png", 2, 2, 2),
+                             (123, "png", 3, 3, 2),
+                             ]
+
+    def test_pdf_page_image(self):
+        # 實際跑 pdf2image（需系統安裝 poppler）。
+        # 驗證：產出 3 個 PageImage，頁碼為 p1..p3。
+        from pypdf import PdfWriter
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            pdf_path = tmpdir / "real_demo.pdf"
+
+            writer = PdfWriter()
+            for _ in range(3):
+                writer.add_blank_page(width=200, height=200)
+            with open(pdf_path, "wb") as f:
+                writer.write(f)
+
+            out = list(PdfOps.pdf_page_images(pdf_path, dpi=100, fmt="PNG", thread_count=1))
+            assert len(out) == 3
+            assert out[0].filename == "real_demo.pdf" and out[0].page == 1
+            assert out[-1].filename == "real_demo.pdf" and out[-1].page == 3

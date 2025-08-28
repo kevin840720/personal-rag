@@ -10,18 +10,20 @@ from PIL import Image
 
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class PageImage:
-    """Represents a page image with variant and metadata.
+    """Represents a page image with file identity and variant.
 
     Attributes:
         image: PIL Image for the page.
-        page_id: Identifier for the page.
-        variant: Variant label, e.g., "raw", "01U_grey", "02U_invert".
+        filename: Source PDF filename (basename, e.g., "doc.pdf").
+        page: 1-based page index in the source PDF.
+        variant: Optional variant label (e.g., "full", "01U_grey").
         meta: Arbitrary metadata.
     """
 
     image: Image.Image
-    page_id: str
-    variant: str = "raw"
+    filename: str
+    page: int
+    variant: str | None = None
     meta: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -132,4 +134,3 @@ class GroupedCorpus:
 
     content: str
     group: List[GroupItem]
-
