@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from PIL import Image
 import numpy as np
 
-from ingestion.file_loaders.goodnotes.ops import ImageOps, Geometry
+from ingestion.file_loaders.goodnotes.ops import ImageOps, Geometry, Clustering
 
 
 def make_image_file(arr:np.ndarray,
@@ -245,15 +245,32 @@ class TestGeometry:
         got = Geometry.expand_bbox(bbox,
                                    height_ratio=2.0,
                                    width_ratio=2.0,
-                                   clip_size=(35, 45),
+                                   img_size=(35, 45),
                                    )
         # 原寬/高=20 → 新寬/高=40，左右/上下各擴 10，之後裁到 (W=35,H=45)
         assert got == (0, 10, 35, 45)
 
     def test_is_bbox_overlap_with_expansion(self):
-        a = {"x_min": 0, "y_min": 0, "x_max": 10, "y_max": 10}
-        b = {"x_min": 12, "y_min": 0, "x_max": 22, "y_max": 10}
+        a = (0, 0, 10, 10)
+        b = (12, 0, 22, 10)
         # 原本不重疊；寬度各向外擴 2 像素後重疊
         assert Geometry.is_bbox_overlap(a, b, width_pixel=2.0) is True
         # 不擴張則不重疊
         assert Geometry.is_bbox_overlap(a, b) is False
+
+class TestClustering:
+    def test_dbscan(self):
+        pts = [(0, 0), (5, 5), (100, 100)]
+        groups = Clustering.dbscan(pts,
+                                   x_eps=10,
+                                   y_eps=10,
+                                   min_samples=1,
+                                   )
+        assert groups == [[0, 1], [2]]
+
+    def test_overlap(self):
+        a = (0, 0, 10, 10)
+        b = (8, 0, 18, 10)
+        c = (100, 100, 110, 110)
+        groups = Clustering.overlap([a, b, c])
+        assert sorted(sorted(g) for g in groups) == [[0, 1], [2]]

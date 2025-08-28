@@ -276,7 +276,7 @@ class Geometry:
                     height_pixel:Optional[float]=None,
                     width_ratio:Optional[float]=None,
                     width_pixel:Optional[float]=None,
-                    clip_size:Optional[Tuple[int,int]]=None,
+                    img_size:Optional[Tuple[int,int]]=None,
                     ) -> Tuple[int,int,int,int]:
         """把 bbox 依比例/像素往外擴，必要時裁到圖片邊界內。
 
@@ -286,7 +286,7 @@ class Geometry:
             height_pixel (Optional[float]): 高度兩側擴的像素量，與 `height_ratio` 擇一。
             width_ratio (Optional[float]): 寬度放大比例，與 `width_pixel` 擇一。
             width_pixel (Optional[float]): 寬度兩側擴的像素量，與 `width_ratio` 擇一。
-            clip_size (Optional[Tuple[int, int]]): (W, H) 用來裁邊界；None 則不裁。
+            img_size (Optional[Tuple[int, int]]): (W, H) 用來裁邊界；None 則不裁。
 
         Returns:
             Tuple[int, int, int, int]: 擴張後的 (x_min, y_min, x_max, y_max)。
@@ -296,8 +296,8 @@ class Geometry:
         h = y_max - y_min
         ex_xmin, ex_xmax = cls._expand_range(x_min, x_max, w, width_ratio, width_pixel)
         ex_ymin, ex_ymax = cls._expand_range(y_min, y_max, h, height_ratio, height_pixel)
-        if clip_size is not None:
-            W, H = clip_size
+        if img_size is not None:
+            W, H = img_size
             ex_xmin = max(0, ex_xmin)
             ex_ymin = max(0, ex_ymin)
             ex_xmax = min(W, ex_xmax)
@@ -306,8 +306,8 @@ class Geometry:
 
     @classmethod
     def is_bbox_overlap(cls,
-                        a:Dict,
-                        b:Dict,
+                        box1:Tuple[float,float,float,float],
+                        box2:Tuple[float,float,float,float],
                         height_ratio:Optional[float]=None,
                         height_pixel:Optional[float]=None,
                         width_ratio:Optional[float]=None,
@@ -316,20 +316,28 @@ class Geometry:
         """判斷兩個 bbox 是否重疊（可選擇先擴張）。
 
         Args:
-            a (Dict): 具有 x_min, y_min, x_max, y_max 的物件。
-            b (Dict): 具有 x_min, y_min, x_max, y_max 的物件。
-            height_ratio (Optional[float]): 高度擴張比例。
-            height_pixel (Optional[float]): 高度擴張像素量。
-            width_ratio (Optional[float]): 寬度擴張比例。
-            width_pixel (Optional[float]): 寬度擴張像素量。
+            box1: 第一個 bbox，(x_min, y_min, x_max, y_max)。
+            box2: 第二個 bbox，(x_min, y_min, x_max, y_max)。
+            height_ratio: 高度擴張比例。
+            height_pixel: 高度擴張像素量。
+            width_ratio: 寬度擴張比例。
+            width_pixel: 寬度擴張像素量。
 
         Returns:
             bool: True 表示重疊，False 表示不重疊。
         """
-        a_bbox = (a["x_min"], a["y_min"], a["x_max"], a["y_max"])
-        b_bbox = (b["x_min"], b["y_min"], b["x_max"], b["y_max"])
-        ax0, ay0, ax1, ay1 = cls.expand_bbox(a_bbox, height_ratio, height_pixel, width_ratio, width_pixel)
-        bx0, by0, bx1, by1 = cls.expand_bbox(b_bbox, height_ratio, height_pixel, width_ratio, width_pixel)
+        ax0, ay0, ax1, ay1 = cls.expand_bbox((int(box1[0]), int(box1[1]), int(box1[2]), int(box1[3])),
+                                              height_ratio,
+                                              height_pixel,
+                                              width_ratio,
+                                              width_pixel,
+                                              )
+        bx0, by0, bx1, by1 = cls.expand_bbox((int(box2[0]), int(box2[1]), int(box2[2]), int(box2[3])),
+                                              height_ratio,
+                                              height_pixel,
+                                              width_ratio,
+                                              width_pixel,
+                                              )
         x_overlap = (ax0 <= bx1) and (bx0 <= ax1)
         y_overlap = (ay0 <= by1) and (by0 <= ay1)
         return x_overlap and y_overlap
@@ -338,24 +346,29 @@ class Geometry:
 class Clustering:
     """簡單的群組化工具（類 DBSCAN 與變形）。"""
     @classmethod
-    def cluster_by_dbscan(
-        cls,
-        items: List[Dict],
-        y_eps: int = 40,
-        x_eps: int = 20,
-        min_samples: int = 1,
-    ) -> List[List[Dict]]:
-        """用矩形距離做個很簡化的 DBSCAN 效果。
+    def dbscan(cls,
+               items:List[Tuple[int,int]],
+               x_eps:int=20,
+               y_eps:int=40,
+               min_samples:int=1,
+               ) -> List[List[int]]:
+        """用矩形距離做簡化的 DBSCAN 分群，回傳索引群組。
 
-        - 以 `x_eps/y_eps` 當鄰近門檻，湊成小群組。
-        - 盡量把靠近的點歸在一起，最後再依 y、x 平均排序。
+        Args:
+            items (List[Tuple[int, int]]): (x_center, y_center) 的點座標列表。
+            x_eps (int, optional): X 方向鄰近門檻。預設 20。
+            y_eps (int, optional): Y 方向鄰近門檻。預設 40。
+            min_samples (int, optional): 成團的最小點數。預設 1。
+
+        Returns:
+            List[List[int]]: 分群結果，每群是一組原輸入的索引。依群內 y 平均、x 平均排序。
         """
         if not items:
             return []
-        coords = np.array([[d["x_center"], d["y_center"]] for d in items])
+        coords = np.array(items)
         n = len(items)
         visited = np.zeros(n, dtype=bool)
-        clusters: List[List[Dict]] = []
+        clusters: List[List[int]] = []
         for i in range(n):
             if visited[i]:
                 continue
@@ -364,40 +377,44 @@ class Clustering:
             mask = mask_x & mask_y
             idxs = np.where(mask)[0]
             if len(idxs) >= min_samples:
-                cluster: List[Dict] = []
+                cluster: List[int] = []
                 for idx in idxs:
                     if not visited[idx]:
                         visited[idx] = True
-                        cluster.append(items[idx])
+                        cluster.append(idx)
                 clusters.append(cluster)
         for i in range(n):
             if not visited[i]:
-                clusters.append([items[i]])
+                clusters.append([i])
                 visited[i] = True
         clusters.sort(
             key=lambda group: (
-                float(np.mean([d["y_center"] for d in group])),
-                float(np.mean([d["x_center"] for d in group])),
+                float(np.mean([coords[idx, 1] for idx in group])),
+                float(np.mean([coords[idx, 0] for idx in group])),
             )
         )
         return clusters
 
     @classmethod
-    def cluster_by_ycenter(cls, items: List[Dict], y_thresh: int = 30) -> List[List[Dict]]:
-        """只看 Y 向距離來分行，X 幾乎不限制。"""
-        big = 10 ** 9
-        return cls.cluster_by_dbscan(items, y_eps=y_thresh, x_eps=big, min_samples=1)
+    def overlap(cls,
+                items:List[Tuple[float, float, float, float]],
+                height_ratio:Optional[float]=None,
+                height_pixel:Optional[float]=None,
+                width_ratio:Optional[float]=None,
+                width_pixel:Optional[float]=None,
+                ) -> List[List[int]]:
+        """依 bbox 是否互相重疊來群組，回傳索引群組。
 
-    @classmethod
-    def cluster_by_overlap(
-        cls,
-        items: List[Dict],
-        height_ratio: Optional[float] = None,
-        height_pixel: Optional[float] = None,
-        width_ratio: Optional[float] = None,
-        width_pixel: Optional[float] = None,
-    ) -> List[List[Dict]]:
-        """以 bbox 是否互相重疊來群組（可帶擴張參數）。"""
+        Args:
+            items (List[Tuple[float, float, float, float]]): bbox 座標 tuple 列表，格式為 (x_min, y_min, x_max, y_max)。
+            height_ratio (Optional[float]): 高度擴張比例。
+            height_pixel (Optional[float]): 高度擴張像素量。
+            width_ratio (Optional[float]): 寬度擴張比例。
+            width_pixel (Optional[float]): 寬度擴張像素量。
+
+        Returns:
+            List[List[int]]: 以重疊關係分成的群組（各組為原輸入索引）。
+        """
         n = len(items)
         if n == 0:
             return []
@@ -417,22 +434,21 @@ class Clustering:
 
         for i in range(n):
             for j in range(i + 1, n):
-                if Geometry.is_bbox_overlap(
-                    items[i],
-                    items[j],
-                    height_ratio=height_ratio,
-                    height_pixel=height_pixel,
-                    width_ratio=width_ratio,
-                    width_pixel=width_pixel,
-                ):
+                if Geometry.is_bbox_overlap(items[i],
+                                            items[j],
+                                            height_ratio=height_ratio,
+                                            height_pixel=height_pixel,
+                                            width_ratio=width_ratio,
+                                            width_pixel=width_pixel,
+                                            ):
                     union(i, j)
 
-        groups_map: Dict[int, List[Dict]] = {}
+        groups_map: Dict[int, List[int]] = {}
         for idx in range(n):
             p = find(idx)
-            groups_map.setdefault(p, []).append(items[idx])
+            groups_map.setdefault(p, []).append(idx)
 
-        return list(groups_map.values())
+        return [idxs for idxs in groups_map.values()]
 
 
 class PdfOps:
