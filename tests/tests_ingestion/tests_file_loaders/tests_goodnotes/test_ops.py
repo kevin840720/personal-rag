@@ -227,3 +227,33 @@ class TestImageOps:
         # Boundary equals threshold → white
         mid = Image.fromarray(np.full((1, 1, 3), 128, dtype=np.uint8), mode="RGB")
         assert ImageOps.estimate_background_color(mid, threshold=128) == "white"
+
+
+class TestGeometry:
+    def test_poly_to_bbox(self):
+        poly = [[0, 10], [0, 0], [10, 0], [10, 10]]
+        assert Geometry.poly_to_bbox(poly) == (0, 0, 10, 10)
+
+    def test_bbox_to_poly(self):
+        bbox = (0, 0, 10, 10)
+        expect = [[0, 10], [0, 0], [10, 0], [10, 10]]
+        assert Geometry.bbox_to_poly(bbox) == expect
+
+    def test_expand_bbox_ratio_and_clip(self):
+        bbox = (10, 20, 30, 40)
+        # 寬高各放大 2 倍，再依圖大小裁切
+        got = Geometry.expand_bbox(bbox,
+                                   height_ratio=2.0,
+                                   width_ratio=2.0,
+                                   clip_size=(35, 45),
+                                   )
+        # 原寬/高=20 → 新寬/高=40，左右/上下各擴 10，之後裁到 (W=35,H=45)
+        assert got == (0, 10, 35, 45)
+
+    def test_is_bbox_overlap_with_expansion(self):
+        a = {"x_min": 0, "y_min": 0, "x_max": 10, "y_max": 10}
+        b = {"x_min": 12, "y_min": 0, "x_max": 22, "y_max": 10}
+        # 原本不重疊；寬度各向外擴 2 像素後重疊
+        assert Geometry.is_bbox_overlap(a, b, width_pixel=2.0) is True
+        # 不擴張則不重疊
+        assert Geometry.is_bbox_overlap(a, b) is False

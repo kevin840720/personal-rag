@@ -5,21 +5,26 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Dict, Tuple, Optional, Union, Iterator
-
 from pathlib import Path
-import numpy as np
-from PIL import Image
+from typing import (Dict,
+                    Iterable,
+                    Iterator,
+                    List,
+                    Optional,
+                    Tuple,
+                    Union,
+                    )
 import gc
 
-from .types import PageImage
+from PIL import Image
+import numpy as np
 
-
-CHANNEL_INDEX = {"R": 0, "G": 1, "B": 2}
-
+from ingestion.file_loaders.goodnotes.types import PageImage
 
 class ImageOps:
-    """影像處理的小工具們（針對 RGB 圖）"""
+    """影像處理的工具（針對 RGB 圖）"""
+    CHANNEL_INDEX = {"R": 0, "G": 1, "B": 2}
+
     @classmethod
     def _ensure_channels(cls,
                          check:Optional[Iterable[str]],
@@ -35,7 +40,7 @@ class ImageOps:
         """
         if not check:
             check = ("R", "G", "B")
-        return [CHANNEL_INDEX[c] for c in check]
+        return [cls.CHANNEL_INDEX[c] for c in check]
 
     @classmethod
     def _build_threshold_mask(cls,
@@ -234,14 +239,13 @@ class Geometry:
                 [x_max, y_max]]
 
     @classmethod
-    def _expand_range(
-        cls,
-        min_v: float,
-        max_v: float,
-        length: Optional[float] = None,
-        ratio: Optional[float] = None,
-        pixel: Optional[float] = None,
-    ) -> Tuple[int, int]:
+    def _expand_range(cls,
+                      min_v:float,
+                      max_v:float,
+                      length:Optional[float]=None,
+                      ratio:Optional[float]=None,
+                      pixel:Optional[float]=None,
+                      ) -> Tuple[int,int]:
         """依比例/像素把一段 [min, max] 往外擴。
 
         Args:
@@ -266,15 +270,14 @@ class Geometry:
         return int(min_v) - delta, int(max_v) + delta
 
     @classmethod
-    def expand_bbox(
-        cls,
-        bbox: Tuple[int, int, int, int],
-        height_ratio: Optional[float] = None,
-        height_pixel: Optional[float] = None,
-        width_ratio: Optional[float] = None,
-        width_pixel: Optional[float] = None,
-        img_size: Optional[Tuple[int, int]] = None,
-    ) -> Tuple[int, int, int, int]:
+    def expand_bbox(cls,
+                    bbox:Tuple[int,int,int,int],
+                    height_ratio:Optional[float]=None,
+                    height_pixel:Optional[float]=None,
+                    width_ratio:Optional[float]=None,
+                    width_pixel:Optional[float]=None,
+                    clip_size:Optional[Tuple[int,int]]=None,
+                    ) -> Tuple[int,int,int,int]:
         """把 bbox 依比例/像素往外擴，必要時裁到圖片邊界內。
 
         Args:
@@ -283,7 +286,7 @@ class Geometry:
             height_pixel (Optional[float]): 高度兩側擴的像素量，與 `height_ratio` 擇一。
             width_ratio (Optional[float]): 寬度放大比例，與 `width_pixel` 擇一。
             width_pixel (Optional[float]): 寬度兩側擴的像素量，與 `width_ratio` 擇一。
-            img_size (Optional[Tuple[int, int]]): (W, H) 用來裁邊界；None 則不裁。
+            clip_size (Optional[Tuple[int, int]]): (W, H) 用來裁邊界；None 則不裁。
 
         Returns:
             Tuple[int, int, int, int]: 擴張後的 (x_min, y_min, x_max, y_max)。
@@ -293,8 +296,8 @@ class Geometry:
         h = y_max - y_min
         ex_xmin, ex_xmax = cls._expand_range(x_min, x_max, w, width_ratio, width_pixel)
         ex_ymin, ex_ymax = cls._expand_range(y_min, y_max, h, height_ratio, height_pixel)
-        if img_size is not None:
-            W, H = img_size
+        if clip_size is not None:
+            W, H = clip_size
             ex_xmin = max(0, ex_xmin)
             ex_ymin = max(0, ex_ymin)
             ex_xmax = min(W, ex_xmax)
@@ -302,15 +305,14 @@ class Geometry:
         return ex_xmin, ex_ymin, ex_xmax, ex_ymax
 
     @classmethod
-    def is_bbox_overlap(
-        cls,
-        a: Dict,
-        b: Dict,
-        height_ratio: Optional[float] = None,
-        height_pixel: Optional[float] = None,
-        width_ratio: Optional[float] = None,
-        width_pixel: Optional[float] = None,
-    ) -> bool:
+    def is_bbox_overlap(cls,
+                        a:Dict,
+                        b:Dict,
+                        height_ratio:Optional[float]=None,
+                        height_pixel:Optional[float]=None,
+                        width_ratio:Optional[float]=None,
+                        width_pixel:Optional[float]=None,
+                        ) -> bool:
         """判斷兩個 bbox 是否重疊（可選擇先擴張）。
 
         Args:
