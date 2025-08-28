@@ -102,30 +102,20 @@ class TestImageOps:
                         ],
                        dtype=np.uint8,
                        )
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            in_path = tmpdir / "in_white.png"
-            out_path = tmpdir / "out_white.png"
+        got = ImageOps.enhance_target(arr,
+                                      target="white",
+                                      threshold=200,
+                                      boost=30,
+                                      other_scale=0.5,
+                                      grey_gap=10,
+                                      )
 
-            make_image_file(arr, in_path)  # 製作測試資料
-
-            ImageOps.enhance_target(in_path,
-                                    out_path,
-                                    target="white",
-                                    threshold=200,
-                                    boost=30,
-                                    other_scale=0.5,
-                                    grey_gap=10,
-                                    )
-
-            got = np.array(Image.open(out_path).convert("RGB"))
-
-            # Manually compute expected using same logic
-            expect = np.array([[[240, 240, 240], [100, 127, 127]],
-                               [[250, 250, 250], [ 25,  30,  35]],
-                               ],
-                              dtype=np.uint8,
-                              )
+        # Manually compute expected using same logic
+        expect = np.array([[[240, 240, 240], [100, 127, 127]],
+                           [[250, 250, 250], [ 25,  30,  35]],
+                           ],
+                          dtype=np.uint8,
+                          )
         assert np.array_equal(got, expect)
 
     def test_enhance_target_black(self):
@@ -134,23 +124,14 @@ class TestImageOps:
                         ],
                        dtype=np.uint8,
                        )
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            in_path = tmpdir / "in_black.png"
-            out_path = tmpdir / "out_black.png"
 
-            make_image_file(arr, in_path)  # 製作測試資料
-
-            ImageOps.enhance_target(in_path,
-                                    out_path,
-                                    target="black",
-                                    threshold=40,
-                                    boost=10,
-                                    other_scale=2.0,
-                                    grey_gap=10,
-                                    )
-
-            got = np.array(Image.open(out_path).convert("RGB"))
+        got = ImageOps.enhance_target(arr,
+                                      target="black",
+                                      threshold=40,
+                                      boost=10,
+                                      other_scale=2.0,
+                                      grey_gap=10,
+                                      )
 
         # Manually compute expected using same logic
         expect = np.array([[[20, 20, 20], [200, 200, 200]],
@@ -166,16 +147,7 @@ class TestImageOps:
                          ]],
                        dtype=np.uint8,
                        )
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            in_path = tmpdir / "in_inv.png"
-            out_path = tmpdir / "out_inv.png"
-
-            make_image_file(arr, in_path)
-
-            ImageOps.invert_image(in_path, out_path)
-            got = np.array(Image.open(out_path).convert("RGB"))
-
+        got = ImageOps.invert_image(arr)
         expect = np.array([[[255, 127,   0],
                             [245, 235, 225]
                             ]],
@@ -189,23 +161,14 @@ class TestImageOps:
                         ],
                        dtype=np.uint8,
                        )
-        with TemporaryDirectory() as tmpdir:
-            tmpdir = Path(tmpdir)
-            in_path = tmpdir / "in_mask.png"
-            out_path = tmpdir / "out_mask.png"
 
-            make_image_file(arr, in_path)
-
-            # Set red where R channel > 100, regardless of G/B
-            ImageOps.mask_and_set_rgb(in_path,
-                                      out_path,
-                                      threshold=100,
-                                      mode="high",
-                                      set_rgb=(255, 0, 0),
-                                      check=("R",),
-                                      )
-
-            got = np.array(Image.open(out_path).convert("RGB"))
+        # Set red where R channel > 100, regardless of G/B
+        got = ImageOps.mask_and_set_rgb(arr,
+                                        threshold=100,
+                                        mode="high",
+                                        set_rgb=(255, 0, 0),
+                                        check=("R",),
+                                        )
 
         # Expected: (0,0) unchanged; (0,1) set to red; (1,0) set to red; (1,1) unchanged
         expect = np.array([[[ 50, 50, 50], [255,   0,   0]],
@@ -217,16 +180,19 @@ class TestImageOps:
 
     def test_estimate_background_color(self):
         # White-ish image
-        white = Image.fromarray(np.full((2, 2, 3), 220, dtype=np.uint8), mode="RGB")
-        assert ImageOps.estimate_background_color(white, threshold=128) == "white"
+        assert ImageOps.estimate_background_color(np.full((2, 2, 3), 220, dtype=np.uint8),
+                                                  threshold=128,
+                                                  ) == "white"
 
         # Black-ish image
-        black = Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8), mode="RGB")
-        assert ImageOps.estimate_background_color(black, threshold=128) == "black"
+        assert ImageOps.estimate_background_color(np.zeros((2, 2, 3), dtype=np.uint8),
+                                                  threshold=128,
+                                                  ) == "black"
 
         # Boundary equals threshold → white
-        mid = Image.fromarray(np.full((1, 1, 3), 128, dtype=np.uint8), mode="RGB")
-        assert ImageOps.estimate_background_color(mid, threshold=128) == "white"
+        assert ImageOps.estimate_background_color(np.full((1, 1, 3), 128, dtype=np.uint8),
+                                                  threshold=128,
+                                                  ) == "white"
 
 
 class TestGeometry:

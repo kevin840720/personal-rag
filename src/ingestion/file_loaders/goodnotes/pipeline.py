@@ -15,15 +15,9 @@ from .types import (
     GroupItem,
     GroupedCorpus,
 )
-from .crop import make_crops
-from .grouping import group_into_corpus
-from .preprocess import (
-    preprocess_white_branch,
-    preprocess_color_branch,
-    preprocess_white_textbook,
-    preprocess_color_notes,
-)
-
+from ingestion.file_loaders.goodnotes.crop import make_crops
+from ingestion.file_loaders.goodnotes.grouping import group_into_corpus
+from ingestion.file_loaders.goodnotes.preprocess import GoodNotesPreprocessOps
 
 class TextDetector(Protocol):
     def predict(self, image: Image.Image) -> List[DetBox]:
@@ -72,21 +66,21 @@ class GoodnotesOCRPipeline:
         Returns:
             GroupedCorpus: _description_
         """
-        page_writing_and_frame, page_writing = preprocess_white_branch(page)
+        page_writing_and_frame, page_writing = preprocess_black_notes_text(page)
         det_res = self._run_detection(page_writing_and_frame)
         crops = self._run_cropping(page_writing, det_res, expand_ratio=1.0)
         rec_res = self._run_recognition(crops)
         return self._group_into_corpus(rec_res)
 
     def run_color_notes(self, page: PageImage) -> GroupedCorpus:
-        color_page = preprocess_color_branch(page)
+        color_page = preprocess_black_notes_handwriting(page)
         det_res = self._run_detection(color_page)
         crops = self._run_cropping(color_page, det_res, expand_ratio=1.0)
         rec_res = self._run_recognition(crops)
         return self._group_into_corpus(rec_res)
 
     def run_textbook_page(self, page: PageImage) -> GroupedCorpus:
-        page_51 = preprocess_white_textbook(page)
+        page_51 = preprocess_white_textbook_text(page)
         det_res = self._run_detection(page_51)
         crops = self._run_cropping(page_51, det_res, expand_ratio=1.0)
         rec_res = self._run_recognition(crops)

@@ -65,9 +65,9 @@ class ImageOps:
         """
         idxs = cls._ensure_channels(check)
         if mode == "high":
-            return (arr[..., idxs] > threshold).all(axis=2)
+            return (arr[..., idxs] >= threshold).all(axis=2)
         if mode == "low":
-            return (arr[..., idxs] < threshold).all(axis=2)
+            return (arr[..., idxs] <= threshold).all(axis=2)
         raise ValueError("mode 應為 'high' 或 'low'")
 
     @classmethod
@@ -91,19 +91,17 @@ class ImageOps:
 
     @classmethod
     def enhance_target(cls,
-                       img_path:Union[str,Path],
-                       out_path:Union[str,Path],
+                       arr:np.ndarray,
                        target:str="white",
                        threshold:int=200,
                        boost:int=30,
                        other_scale:float=0.7,
                        grey_gap:Optional[int]=None,
-                       ) -> None:
+                       ) -> np.ndarray:
         """強化白/黑目標區域，其他像素做縮放。
 
         Args:
-            img_path (Union[str, Path]): 輸入影像路徑。
-            out_path (Union[str, Path]): 輸出影像路徑。
+            arr (np.ndarray): HxWx3 的 RGB 矩陣。
             target (str, optional): 'white' 強化亮灰像素、'black' 強化暗灰像素。預設 'white'。
             threshold (int, optional): 亮/暗的門檻值。預設 200。
             boost (int, optional): 目標像素的加/減量級。預設 30。
@@ -114,10 +112,9 @@ class ImageOps:
             ValueError: 當 `target` 不是 'white' 或 'black' 時。
 
         Returns:
-            None
+            np.ndarray: 修改後的 RGB 陣列
         """
-        img = Image.open(img_path).convert("RGB")
-        arr = np.array(img).astype(np.int16)
+        arr = arr.astype(np.int16)
         if target not in ("white", "black"):
             raise ValueError("target 應為 'white' 或 'black'")
         if target == "white":
@@ -131,73 +128,62 @@ class ImageOps:
             mask = mask_thr & mask_gray
             arr[mask] = np.clip(arr[mask] - boost, 0, 255)
         arr[~mask] = np.clip(arr[~mask] * other_scale, 0, 255)
-        Image.fromarray(arr.astype(np.uint8)).save(out_path)
+        return arr.astype(np.uint8)
 
     @classmethod
     def invert_image(cls,
-                     img_path:Union[str,Path],
-                     out_path:Union[str,Path],
-                     ) -> None:
+                     arr:np.ndarray,
+                     ) -> np.ndarray:
         """影像反白（把每個通道做 255 減原值）。
 
         Args:
-            img_path (Union[str, Path]): 輸入影像路徑。
-            out_path (Union[str, Path]): 輸出影像路徑。
+            arr (np.ndarray): HxWx3 的 RGB 矩陣。
 
         Returns:
-            None
+            np.ndarray: 修改後的 RGB 陣列
         """
-        img = Image.open(img_path).convert("RGB")
-        arr = np.array(img).astype(np.uint8)
-        arr = 255 - arr
-        Image.fromarray(arr).save(out_path)
+        return (255 - arr.astype(np.uint8)).astype(np.uint8)
 
     @classmethod
     def mask_and_set_rgb(cls,
-                         img_path:Union[str,Path],
-                         out_path:Union[str,Path],
+                         arr:np.ndarray,
                          threshold:int,
                          mode:str="high",
                          set_rgb:Tuple[int,int,int]=(255,255,255),
                          check:Optional[Iterable[str]]=("R","G","B"),
-                         ) -> None:
-        """依門檻製作遮罩，將通過的像素設為指定顏色。
+                         ) -> np.ndarray:
+        """純運算版本：依門檻建立遮罩，將通過的像素設為指定 RGB 顏色。
 
         Args:
-            img_path (Union[str, Path]): 輸入影像路徑。
-            out_path (Union[str, Path]): 輸出影像路徑。
-            threshold (int): 門檻值（0–255）。
-            mode (str, optional): 'high' 或 'low'，依據門檻比較方向。預設 'high'。
-            set_rgb (Tuple[int, int, int], optional): 通過遮罩後要設的 RGB 顏色。
-                預設 (255, 255, 255)。
-            check (Optional[Iterable[str]], optional): 要檢查的通道。預設 RGB。
+            arr (np.ndarray): H×W×3 的 RGB 陣列。
+            threshold (int): 門檻。
+            mode (str): 'high' 或 'low'。
+            set_rgb (Tuple[int,int,int]): 通過遮罩後要設的顏色。
+            check (Optional[Iterable[str]]): 檢查的通道。
 
         Returns:
-            None
+            np.ndarray: 修改後的 RGB 陣列。
         """
-        img = Image.open(img_path).convert("RGB")
-        arr = np.array(img)
-        mask = cls._build_threshold_mask(arr, threshold=threshold, mode=mode, check=check)
-        arr[mask] = set_rgb
-        Image.fromarray(arr).save(out_path)
+        a = arr.copy()
+        mask = cls._build_threshold_mask(a, threshold=threshold, mode=mode, check=check)
+        a[mask] = set_rgb
+        return a.astype(np.uint8)
 
     @classmethod
     def estimate_background_color(cls,
-                                  img:Image.Image,
+                                  arr:np.ndarray,
                                   threshold:int=128,
                                   ) -> str:
         """以平均亮度粗估背景色。
 
         Args:
-            img (PIL.Image.Image): PIL 影像物件。
-            threshold (int, optional): 亮度門檻，平均亮度大於等於此值視為白底。
-                預設 128。
+            arr (np.ndarray): H×W×3 的 RGB 陣列。
 
         Returns:
             str: 'white' 或 'black'。
         """
-        arr = np.array(img.convert("RGB"), dtype=np.uint8)
-        channel_means = arr.reshape(-1, 3).mean(axis=0)
+        a = arr.astype(np.uint8)
+        channel_means = a.reshape(-1, 3).mean(axis=0)
         brightness = float(channel_means.mean())
         return "white" if brightness >= threshold else "black"
 
