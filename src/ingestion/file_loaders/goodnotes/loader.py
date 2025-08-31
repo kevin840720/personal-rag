@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pypdf import PdfReader
 from PIL import Image
+import numpy as np
 
 from ingestion.base import DocumentLoader, LoaderResult
 from objects import PDFMetadata, DocumentMetadata, FileType
@@ -27,27 +28,26 @@ class GoodnotesMetadata(PDFMetadata):
     @classmethod
     def from_dict(cls, data: Dict):
         base = PDFMetadata.from_dict(data)
-        return cls(
-            file_type=base.file_type,
-            file_name=base.file_name,
-            title=base.title,
-            author=base.author,
-            subject=base.subject,
-            created_at=base.created_at,
-            modified_at=base.modified_at,
-            source=base.source,
-            producer=base.producer,
-            page=data.get("page", 1),
-            outlines=data.get("outlines", []),
-        )
+        return cls(file_type=base.file_type,
+                   file_name=base.file_name,
+                   title=base.title,
+                   author=base.author,
+                   subject=base.subject,
+                   created_at=base.created_at,
+                   modified_at=base.modified_at,
+                   source=base.source,
+                   producer=base.producer,
+                   page=data.get("page", 1),
+                   outlines=data.get("outlines", []),
+                   )
 
 
-def _flatten_outlines(reader: PdfReader) -> Dict[int, List[str]]:
+def _flatten_outlines(reader:PdfReader) -> Dict[int,List[str]]:
     """Builds page→[titles] map from a PDF's outlines (bookmarks).
 
     GoodNotes commonly uses a single-level outline. This function is robust to nested lists.
     """
-    page_map: Dict[int, List[str]] = {}
+    page_map:Dict[int,List[str]] = {}
 
     def handle_item(item):
         try:
@@ -80,13 +80,18 @@ def _flatten_outlines(reader: PdfReader) -> Dict[int, List[str]]:
 
 
 class _PaddleTextDetector:
-    def __init__(self, model_name: str = "PP-OCRv5_server_det", batch_size: int = 1):
+    def __init__(self,
+                 model_name:str="PP-OCRv5_server_det",
+                 batch_size:int=1,
+                 ):
         from paddleocr import TextDetection  # type: ignore
 
         self.model = TextDetection(model_name=model_name)
         self.batch_size = batch_size
 
-    def predict(self, image: Image.Image):
+    def predict(self,
+                image:Image.Image,
+                ):
         import numpy as np
 
         from ingestion.file_loaders.goodnotes.types import DetBox
@@ -119,7 +124,9 @@ class _PaddleTextRecognizer:
         self.model = TextRecognition(model_name=model_name)
         self.batch_size = batch_size
 
-    def predict(self, image: Image.Image):
+    def predict(self,
+                image:Image.Image,
+                ):
         import numpy as np
 
         np_img = np.array(image.convert("RGB"))
@@ -151,17 +158,18 @@ class GoodnotesLoader(DocumentLoader):
       3) Return LoaderResult per page: content = trunk, metadata.extra.note = note
     """
 
-    def __init__(
-        self,
-        dpi:int=1000,
-        detector: Optional[object] = None,
-        recognizer: Optional[object] = None,
-    ):
+    def __init__(self,
+                 dpi:int=1000,
+                 detector:Optional[object]=None,
+                 recognizer:Optional[object]=None,
+                 ):
         super().__init__()
         self.dpi = dpi
         self.detector = detector or _PaddleTextDetector()
         self.recognizer = recognizer or _PaddleTextRecognizer()
-        self.pipeline = GoodnotesOCRPipeline(detector=self.detector, recognizer=self.recognizer)
+        self.pipeline = GoodnotesOCRPipeline(detector=self.detector,
+                                             recognizer=self.recognizer,
+                                             )
 
     def _get_metadata(self, path: Union[str, Path]) -> DocumentMetadata:
         reader = PdfReader(path)
@@ -245,7 +253,7 @@ class GoodnotesLoader(DocumentLoader):
         results:List[LoaderResult] = []
         for idx, page in enumerate(PdfOps.pdf_page_images(path, dpi=self.dpi), start=1):
             # 1) 區分筆記是白底還是黑底
-            bg = ImageOps.estimate_background_color(page.image)
+            bg = ImageOps.estimate_background_color(np.array(page.image.convert("RGB")))
             is_white = (bg == "white")
 
             # 2) run OCR variants
@@ -276,5 +284,6 @@ class GoodnotesLoader(DocumentLoader):
 
             # 4) LoaderResult: content=trunk, doc=None
             results.append(LoaderResult(content=trunk.content, metadata=meta, doc=None))
+            results.append(LoaderResult(content=note.content, metadata=meta, doc=None))
 
         return results
