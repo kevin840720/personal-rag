@@ -29,6 +29,8 @@ langchain-community = "*"
 langchain-mcp-adapters = "*"
 duckduckgo-search = "*"
 mcpo = "*"
+paddleocr = "*"
+paddlepaddle = "*"
 
 [dev-packages]
 pytest = "*"

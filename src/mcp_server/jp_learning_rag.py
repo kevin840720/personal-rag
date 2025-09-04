@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts import Prompt
 from mcp.types import TextContent
 
 from cache.redis import RedisCacheHandler
@@ -27,7 +28,11 @@ load_dotenv()
 
 class JapaneseLearningRAGServer:
     def __init__(self):
-        self.mcp = FastMCP("JapaneseLearningRAG")
+        # 將系統提示直接設為伺服器 instructions，供通用 orchestrator 使用
+        self.mcp = FastMCP("JapaneseLearningRAG",
+                           instructions=self.system_prompt(),
+                           log_level='DEBUG',
+                           )
 
         # 初始化依賴
         self.embedder = OpenAIEmbeddingModel(
@@ -58,15 +63,25 @@ class JapaneseLearningRAGServer:
         # 註冊工具
         self.mcp.add_tool(self.search_japanese_note)
 
+    def system_prompt(self) -> str:  
+        return """
+        你是一個活潑開朗的在台日文教師。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。
+        使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；
+
+        行為守則
+        - 如果你的回答中包含「日文學習筆記」的資訊，必須在回答的最後回傳引用原文的片段與對應頁碼。
+        - 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。
+        - 有關「日文學習筆記」的 metadata: 頁碼、來源、位置等僅取自 metadata，不得從 content/OCR 推斷。
+        - 語言一致: 用戶使用何種語言即以相同語言回覆；引文原語可保留但加註來源。
+        - 承認錯誤：如果工具搜尋失敗，回傳錯誤訊息，告知使用者失敗的原因
+        """
+    
     async def search_japanese_note(
         self,
-        query: Annotated[str, Field(..., description="使用者查詢問題")],
-        keywords: Annotated[
-            Optional[List[str]],
-            Field(default=None, description="輔助關鍵字 (0~3 個)，用於 BM25 檢索"),
-        ] = None,
-        top_embedding_k: Annotated[int, Field(default=3, description="Embedding 檢索數量")] = 3,
-        top_keyword_k: Annotated[int, Field(default=3, description="每個關鍵字 BM25 檢索數量")] = 3,
+        query: Annotated[str, Field(description="直接用使用者的問題進行語意搜尋")],
+        keywords: Annotated[list[str], Field(description="用關鍵字搜尋，建議 2～6 個單詞，要翻譯成中文與日文，例如：「奧運」和「オリンピック」要同時出現")],
+        top_embedding_k: Annotated[int, Field(default=3, description="Embedding 檢索數量，只會使用 `question`")] = 3,
+        top_keyword_k: Annotated[int, Field(default=3, description="每個關鍵字 BM25 檢索數量，只會使用 `keywords`")] = 3,
     ) -> TextContent:
         """
         用途：
@@ -74,11 +89,12 @@ class JapaneseLearningRAGServer:
 
         使用時機：
             - 查詢偏長、敘述性強，且需要語意層次理解（如目的、定義、流程、說明）時。
-            - 無明確關鍵字，僅能以概念或背景描述需求時。
+            - 帶有明確關鍵字，想要用傳統方式搜尋時。
             - 需要從多篇筆記彙整重點或比對相近概念時。
 
         限制：
             - 僅檢索已索引的筆記內容；若無結果，可能是尚未收錄或關鍵詞不匹配。
+            - 如果你打算搜尋資訊，你的 keyword 要翻譯成中文與日文，例如：使用者搜尋「奧運」，你在時要用「奧運」和「オリンピック」。
         """
         keywords = keywords or []
 
@@ -105,13 +121,17 @@ class JapaneseLearningRAGServer:
             if cid and cid not in unique:
                 unique[cid] = ch
 
-        merged = list(unique.values())
+        merged:List[Chunk] = list(unique.values())
 
-        lines = [f"找到 {len(merged)} 個相關文件："]
+        lines = [
+            f"找到 {len(merged)} 個相關文件：",
+            # "提示：頁碼與來源請一律依據 metadata，不得從內容/OCR 推斷。",
+            # "     必須回傳引用原文。"
+        ]
         for i, ch in enumerate(merged, 1):
             content = ch.content
             meta = ch.metadata
-            lines.append(f"文件{i} 文件資訊: {meta}\n內文: {content}\n")
+            lines.append(f"{meta.file_name}\n文件資訊: {meta}\n內文: {content}\n")
 
         return TextContent(type="text", text="\n".join(lines))
 
@@ -127,7 +147,7 @@ if __name__ == "__main__":
 #     async def main():
 #         server = JapaneseLearningRAGServer()
 #         result = await server.search_japanese_note(
-#             query="日文的助詞是什麼？",
+#             question="日文的助詞是什麼？",
 #             keywords=["助詞", "文法"],
 #             top_embedding_k=2,
 #             top_keyword_k=2,
