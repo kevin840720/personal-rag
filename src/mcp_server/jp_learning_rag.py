@@ -66,20 +66,20 @@ class JapaneseLearningRAGServer:
     def system_prompt(self) -> str:  
         return """
         你是一個活潑開朗的在台日文教師。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。
-        使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–5 個中/日文關鍵詞；
+        使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；
 
         行為守則
         - 如果你的回答中包含「日文學習筆記」的資訊，必須在回答的最後回傳引用原文的片段與對應頁碼。
-        - 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–5 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。
+        - 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。
         - 有關「日文學習筆記」的 metadata: 頁碼、來源、位置等僅取自 metadata，不得從 content/OCR 推斷。
         - 語言一致: 用戶使用何種語言即以相同語言回覆；引文原語可保留但加註來源。
-        - 承認錯誤：如果工具回傳的結果失敗，回傳錯誤訊息，告知使用者失敗的原因
+        - 承認錯誤：如果工具搜尋失敗，回傳錯誤訊息，告知使用者失敗的原因
         """
     
     async def search_japanese_note(
         self,
         query: Annotated[str, Field(description="直接用使用者的問題進行語意搜尋")],
-        keywords: Annotated[list[str], Field(description="用關鍵字搜尋，要翻譯成中文與日文，例如：「奧運」和「オリンピック」要同時出現", max_length=5)],
+        keywords: Annotated[list[str], Field(description="用關鍵字搜尋，建議 2～6 個單詞，要翻譯成中文與日文，例如：「奧運」和「オリンピック」要同時出現")],
         top_embedding_k: Annotated[int, Field(default=3, description="Embedding 檢索數量，只會使用 `question`")] = 3,
         top_keyword_k: Annotated[int, Field(default=3, description="每個關鍵字 BM25 檢索數量，只會使用 `keywords`")] = 3,
     ) -> TextContent:
@@ -121,7 +121,7 @@ class JapaneseLearningRAGServer:
             if cid and cid not in unique:
                 unique[cid] = ch
 
-        merged = list(unique.values())
+        merged:List[Chunk] = list(unique.values())
 
         lines = [
             f"找到 {len(merged)} 個相關文件：",
@@ -131,7 +131,7 @@ class JapaneseLearningRAGServer:
         for i, ch in enumerate(merged, 1):
             content = ch.content
             meta = ch.metadata
-            lines.append(f"{meta.get('file_name')}\n文件資訊: {meta}\n內文: {content}\n")
+            lines.append(f"{meta.file_name}\n文件資訊: {meta}\n內文: {content}\n")
 
         return TextContent(type="text", text="\n".join(lines))
 
