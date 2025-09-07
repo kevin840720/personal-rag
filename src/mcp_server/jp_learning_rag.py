@@ -27,11 +27,15 @@ from objects import Chunk
 load_dotenv()
 
 class JapaneseLearningRAGServer:
-    def __init__(self):
+    def __init__(self, host, port):
         # 將系統提示直接設為伺服器 instructions，供通用 orchestrator 使用
         self.mcp = FastMCP("JapaneseLearningRAG",
                            instructions=self.system_prompt(),
                            log_level='DEBUG',
+                           # 下面三個參數是 streamable-http mode 才會使用，連線位置是 http://localhost:56481/mcp
+                           host=host,
+                           port=port,
+                           streamable_http_path="/mcp",
                            )
 
         # 初始化依賴
