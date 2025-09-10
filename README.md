@@ -10,6 +10,57 @@
 
 整體串接：（OpenAPI 工具）↔ OpenWebUI ↔ MCP Server
 
+## TL;DR
+
+- 啟動（stdio，配合 mcpo/OpenAPI）
+  - `pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py`
+
+- 啟動（streamable-http）
+  - `pipenv run env PYTHONPATH=src python src/app.py`（預設 `http://localhost:56481/mcp`）
+
+- 若要給一般 LLM/工具平台用（HTTP JSON）
+  - 列工具：
+    - `POST http://localhost:56485/tools`
+    - Body: `{"tags":["all"]}`
+  - 呼叫工具：
+    - `POST http://localhost:56485/call`
+    - Body:
+      ```json
+      {
+        "tool_name": "search_japanese_note",
+        "args": {
+          "query": "請解釋日文的助詞",
+          "keywords": ["助詞", "助詞(じょし)", "文法"],
+          "top_embedding_k": 3,
+          "top_keyword_k": 3
+        }
+      }
+      ```
+
+### cURL 範例（最小）
+
+```bash
+# 列出可用工具
+curl -sS -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"tags":["all"]}' \
+  http://localhost:56485/tools | jq
+
+# 呼叫 search_japanese_note
+curl -sS -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "tool_name": "search_japanese_note",
+        "args": {
+          "query": "請解釋日文的助詞",
+          "keywords": ["助詞", "オリンピック"],
+          "top_embedding_k": 3,
+          "top_keyword_k": 3
+        }
+      }' \
+  http://localhost:56485/call | jq
+```
+
 ## 功能特色
 
 - 向量檢索 + 關鍵字檢索：
@@ -20,6 +71,42 @@
 - OpenWebUI 整合：
   - 以 OpenAPI「工具伺服器」引入 MCP 工具
 - 評估支持：提供 RAGAS 檢索評估腳本，便於觀察檢索純度與覆蓋率
+
+## 以 Streamable HTTP 啟動（MCP 原生傳輸）
+
+本專案新增了以 MCP streamable-http 傳輸啟動的 Server，方便直接用支援 MCP 的 Client 連線（例如部分 IDE 外掛、MCP Playground 等）。
+
+- 入口程式：`src/app.py`
+- 預設連線位址：`http://localhost:56481/mcp`
+
+### 需求
+
+- 已安裝 `pipenv` 中套件
+- `.env` 需設定下方「環境與服務」所列變數（OpenAI、Redis、PostgreSQL、Elasticsearch）
+
+### 啟動指令
+
+```bash
+pipenv run env PYTHONPATH=src python src/app.py
+```
+
+啟動後，Server 會以 MCP streamable-http 監聽 `localhost:56481`，路徑為 `/mcp`。
+
+### 連線方式（MCP Client）
+
+- 使用支援 MCP「streamable-http」傳輸的 Client，在其設定中填入：
+  - type/transport: `streamable-http`
+  - url: `http://localhost:56481/mcp`
+  - （如 Client 需額外欄位，依其文件填寫）
+
+可用工具：`search_japanese_note`
+- 參數：
+  - `query`（字串）：用使用者原始問題進行語意檢索
+  - `keywords`（字串陣列）：2～6 個關鍵詞，建議同時提供中日文版本（例如：`["奧運", "オリンピック"]`）
+  - `top_embedding_k`（整數，預設 3）：向量檢索數量
+  - `top_keyword_k`（整數，預設 3）：每個關鍵字的 BM25 檢索數量
+
+若需變更 host/port/path，可直接調整 `src/app.py` 建構 `JapaneseLearningRAGServer(host=..., port=...)` 與 `streamable_http_path` 的參數。
 
 ## 啟動 MCP Server 並接到 Open WebUI
 
