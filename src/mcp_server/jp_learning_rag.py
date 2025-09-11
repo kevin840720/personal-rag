@@ -27,7 +27,12 @@ from objects import Chunk
 load_dotenv()
 
 class JapaneseLearningRAGServer:
-    def __init__(self, host, port):
+    def __init__(self,
+                 *
+                 ,
+                 host:str="127.0.0.1",
+                 port:int=8000,
+                 ):
         # 將系統提示直接設為伺服器 instructions，供通用 orchestrator 使用
         self.mcp = FastMCP("JapaneseLearningRAG",
                            instructions=self.system_prompt(),
@@ -67,6 +72,50 @@ class JapaneseLearningRAGServer:
         # 註冊工具
         self.mcp.add_tool(self.search_japanese_note)
 
+    async def retrieve_chunks(self,
+                               *,
+                               query:str,
+                               keywords:List[str],
+                               top_embedding_k:int=3,
+                               top_keyword_k:int=3,
+                               ) -> List[Chunk]:
+        """核心檢索：回傳合併去重後的 Chunk 清單。
+
+        - 不做字串渲染。
+        - 不做相容性層與吞例外；發生錯誤讓它拋出即可。
+        """
+        keywords = keywords or []
+
+        async def embed_search(q:str):
+            qv = self.embedder.encode(q)
+            return self.vec_store.search(qv, top_k=top_embedding_k)
+
+        async def bm25_search(kw:str):
+            return self.lex_store.search(kw, top_k=top_keyword_k)
+
+        tasks = []
+        if query:
+            tasks += [embed_search(query)]
+        if keywords:
+            tasks += [bm25_search(kw) for kw in keywords]
+
+        if not tasks:
+            return []
+
+        results = await asyncio.gather(*tasks)
+
+        all_chunks:List[Chunk] = [hit.chunk for hits in results for hit in hits]
+        if not all_chunks:
+            return []
+
+        unique = {}
+        for ch in all_chunks:
+            cid = ch.id
+            if cid and cid not in unique:
+                unique[cid] = ch
+
+        return list(unique.values())
+
     def system_prompt(self) -> str:  
         return """
         你是一個活潑開朗的在台日文教師。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。
@@ -82,10 +131,10 @@ class JapaneseLearningRAGServer:
     
     async def search_japanese_note(
         self,
-        query: Annotated[str, Field(description="直接用使用者的問題進行語意搜尋")],
-        keywords: Annotated[list[str], Field(description="用關鍵字搜尋，建議 2～6 個單詞，要翻譯成中文與日文，例如：「奧運」和「オリンピック」要同時出現")],
-        top_embedding_k: Annotated[int, Field(default=3, description="Embedding 檢索數量，只會使用 `question`")] = 3,
-        top_keyword_k: Annotated[int, Field(default=3, description="每個關鍵字 BM25 檢索數量，只會使用 `keywords`")] = 3,
+        query:Annotated[str, Field(description="直接用使用者的問題進行語意搜尋")],
+        keywords:Annotated[list[str], Field(description="用關鍵字搜尋，建議 2～6 個單詞，要翻譯成中文與日文，例如：「奧運」和「オリンピック」要同時出現")],
+        top_embedding_k:Annotated[int, Field(default=3, description="Embedding 檢索數量，只會使用 `question`")]=3,
+        top_keyword_k:Annotated[int, Field(default=3, description="每個關鍵字 BM25 檢索數量，只會使用 `keywords`")]=3,
     ) -> TextContent:
         """
         用途：
@@ -100,39 +149,21 @@ class JapaneseLearningRAGServer:
             - 僅檢索已索引的筆記內容；若無結果，可能是尚未收錄或關鍵詞不匹配。
             - 如果你打算搜尋資訊，你的 keyword 要翻譯成中文與日文，例如：使用者搜尋「奧運」，你在時要用「奧運」和「オリンピック」。
         """
-        keywords = keywords or []
+        chunks = await self.retrieve_chunks(query=query,
+                                             keywords=keywords,
+                                             top_embedding_k=top_embedding_k,
+                                             top_keyword_k=top_keyword_k,
+                                             )
 
-        async def embed_search() -> SearchHit:
-            qv = self.embedder.encode(query)
-            return self.vec_store.search(qv, top_k=top_embedding_k)
-
-        async def bm25_search(kw:str) -> SearchHit:
-            return self.lex_store.search(kw, top_k=top_keyword_k)
-
-
-        tasks = [embed_search()] + [bm25_search(kw) for kw in keywords]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # 合併 + 去重
-        all_chunks:List[Chunk] = [hit.chunk for hits in results for hit in hits]
-
-        if not all_chunks:
+        if not chunks:
             return TextContent(type="text", text="未找到相關文件。")
 
-        unique = {}
-        for ch in all_chunks:
-            cid = ch.id
-            if cid and cid not in unique:
-                unique[cid] = ch
-
-        merged:List[Chunk] = list(unique.values())
-
         lines = [
-            f"找到 {len(merged)} 個相關文件：",
+            f"找到 {len(chunks)} 個相關文件：",
             # "提示：頁碼與來源請一律依據 metadata，不得從內容/OCR 推斷。",
             # "     必須回傳引用原文。"
         ]
-        for i, ch in enumerate(merged, 1):
+        for i, ch in enumerate(chunks, 1):
             content = ch.content
             meta = ch.metadata
             lines.append(f"{meta.file_name}\n文件資訊: {meta}\n內文: {content}\n")

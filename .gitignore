@@ -109,3 +109,6 @@ models/*
 !models/ocr/
 models/ocr/*
 !models/ocr/PPv5-download-guide.md
+ 
+# Benchmark reports
+benchmarks/jp_rag/report/

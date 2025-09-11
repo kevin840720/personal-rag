@@ -52,8 +52,8 @@ curl -sS -X POST \
   -d '{
         "tool_name": "search_japanese_note",
         "args": {
-          "query": "請解釋日文的助詞",
-          "keywords": ["助詞", "オリンピック"],
+          "query": "請解釋日本舉辦奧運的相關資訊",
+          "keywords": ["奧運", "オリンピック"],
           "top_embedding_k": 3,
           "top_keyword_k": 3
         }

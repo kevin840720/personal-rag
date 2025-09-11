@@ -18,10 +18,14 @@ from ragas.metrics import (ContextRelevance,
 from ragas import (EvaluationDataset,
                    evaluate,
                    )
+from ragas.run_config import RunConfig
 from ragas.llms import LangchainLLMWrapper
-from ragas.dataset_schema import SingleTurnSample
+from ragas.dataset_schema import (EvaluationResult,
+                                  SingleTurnSample,
+                                  )
 
 from evaluation.errors import EvaluationDatasetError
+from evaluation.utils import RagasPatch
 from logging_.logger import get_logger
 
 
@@ -33,6 +37,7 @@ class ContextRelevanceEval:
     def __init__(self,
                  model:str="gpt-4o-mini",
                  api_key:str=os.getenv("OPEN_AI_API"),
+                 max_workers:int=4,
                  ):
         """初始化具 reference 的檢索評估器。
 
@@ -53,6 +58,7 @@ class ContextRelevanceEval:
                          LLMContextRecall(llm=self._evaluator_llm),                  # recall@k:    應該找回來的東西裡，有多少真的被找回來了？
                          ContextRelevance(llm=self._evaluator_llm),                  # 檢索結果到底有沒有真的回應使用者的問題？
                          ]
+        self._max_workers = max_workers
 
     def _check_dataset(self, dataset:EvaluationDataset) -> None:
         """檢查資料集欄位是否完整（具 reference 版本）。
@@ -92,7 +98,7 @@ class ContextRelevanceEval:
             if not (isinstance(sample.reference, str) and sample.reference.strip()):
                 raise EvaluationDatasetError(f"row {idx} missing 'reference'")
 
-    def evaluate(self, dataset:EvaluationDataset):
+    def evaluate(self, dataset:EvaluationDataset) -> EvaluationResult:
         """執行三項檢索評估（具 reference 版本）。
 
         Args:
@@ -105,8 +111,12 @@ class ContextRelevanceEval:
             None。函式會直接 `print(results.to_pandas())` 以便觀察結果。
         """
         self._check_dataset(dataset)
-        results = evaluate(dataset=dataset, metrics=self._metrics, raise_exceptions=True)
-        print(results.to_pandas())
+        results = evaluate(dataset=dataset,
+                           metrics=self._metrics,
+                           raise_exceptions=True,
+                           run_config=RunConfig(max_workers=self._max_workers),
+                           )
+        return results
 
 
 class ContextRelevanceEvalWithoutReference:
@@ -114,6 +124,7 @@ class ContextRelevanceEvalWithoutReference:
     def __init__(self,
                  model:str="gpt-4o-mini",
                  api_key:str=os.getenv("OPEN_AI_API"),
+                 max_workers:int=4,
                  ):
         """初始化無 reference 的檢索評估器（適合線上 RAG 串接）。
 
@@ -133,6 +144,7 @@ class ContextRelevanceEvalWithoutReference:
         self._metrics = [ContextRelevance(llm=self._evaluator_llm),                     # 檢索結果到底有沒有真的回應使用者的問題？
                          LLMContextPrecisionWithoutReference(llm=self._evaluator_llm),  # 使用用系統 response 當 proxy，LLM 判斷 context 是否支撐 response。
                          ]
+        self._max_workers = max_workers
 
     def _check_dataset(self, dataset:EvaluationDataset) -> None:
         """檢查資料集欄位是否完整（無 reference 版本）。
@@ -169,7 +181,7 @@ class ContextRelevanceEvalWithoutReference:
             if not (isinstance(sample.response, str) and sample.response.strip()):
                 raise EvaluationDatasetError(f"row {idx} missing 'response'")
 
-    def evaluate(self, dataset:EvaluationDataset):
+    def evaluate(self, dataset:EvaluationDataset) -> EvaluationResult:
         """執行兩項檢索評估（無 reference 版本）。
 
         Args:
@@ -182,5 +194,9 @@ class ContextRelevanceEvalWithoutReference:
             None。函式會直接 `print(results.to_pandas())` 以便觀察結果。
         """
         self._check_dataset(dataset)
-        results = evaluate(dataset=dataset, metrics=self._metrics, raise_exceptions=True)
-        print(results.to_pandas())
+        results = evaluate(dataset=dataset,
+                           metrics=self._metrics,
+                           raise_exceptions=True,
+                           run_config=RunConfig(max_workers=self._max_workers),
+                           )
+        return results
