@@ -28,14 +28,13 @@ load_dotenv()
 
 class JapaneseLearningRAGServer:
     def __init__(self,
-                 *
-                 ,
+                 *,
                  host:str="127.0.0.1",
                  port:int=8000,
                  ):
         # 將系統提示直接設為伺服器 instructions，供通用 orchestrator 使用
         self.mcp = FastMCP("JapaneseLearningRAG",
-                           instructions=self.system_prompt(),
+                           instructions="私人日文筆記查詢系統，查詢有關日文單字、文法、筆記等相關問題",
                            log_level='DEBUG',
                            # 下面三個參數是 streamable-http mode 才會使用，連線位置是 http://localhost:56481/mcp
                            host=host,
@@ -71,6 +70,7 @@ class JapaneseLearningRAGServer:
 
         # 註冊工具
         self.mcp.add_tool(self.search_japanese_note)
+        self.mcp.add_tool(self.japanese_note_reply_instruction)
 
     async def retrieve_chunks(self,
                                *,
@@ -116,18 +116,49 @@ class JapaneseLearningRAGServer:
 
         return list(unique.values())
 
-    def system_prompt(self) -> str:  
-        return """
-        你是一個活潑開朗的在台日文教師。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。
-        使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；
-
-        行為守則
-        - 如果你的回答中包含「日文學習筆記」的資訊，必須在回答的最後回傳引用原文的片段與對應頁碼。
-        - 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。
-        - 有關「日文學習筆記」的 metadata: 頁碼、來源、位置等僅取自 metadata，不得從 content/OCR 推斷。
-        - 語言一致: 用戶使用何種語言即以相同語言回覆；引文原語可保留但加註來源。
-        - 承認錯誤：如果工具搜尋失敗，回傳錯誤訊息，告知使用者失敗的原因
+    def japanese_note_reply_instruction(self) -> str: 
         """
+        工具用途：
+            - 當引用「日文學習筆記」的內容來生成回覆時使用。
+
+        行為規範：
+            - 回覆必須以 Markdown 輸出，最多會有四個部份：
+                0. 前言：簡短回答
+                1. 筆記：先對筆記做出彙整回答，接著引用筆記的原文，並在最後標註來源（檔名、頁碼或段落）。若找不到，請填寫「查無資料」。
+                2. 網路資訊（可選）：在網路搜尋的結果，包含教學網站、部落格等等，需要在引用的段落後標註來源（連結）。
+                3. 總整理：如果資料來源超過三處，在最後一段進行彙整。
+            - 不得自行編造文件條文或規範。
+            - 若完全沒有檢索結果，回覆「未找到相關文件」。
+        """
+        return TextContent(
+            type="text",
+            text=("（回覆必須以 Markdown 輸出，架構如下：）"
+                  "（簡短回答）\n"
+                  "## 筆記\n"
+                  "### 摘錄\n"
+                  "（對筆記做出彙整回答）\n\n"
+                  "### 筆記原文\n"
+                  "（引用筆記的原文，並在最後標註來源，若無資料，則填寫「查無資料」）\n\n"
+                  "## 網路資訊\n"
+                  "（在網路搜尋的結果，如果未搜尋，則移除此段）\n\n"
+                  "## 總整理\n"
+                  "（如果資料來源超過三處，在最後一段進行彙整，否則移除此段）\n"
+                  )
+        )
+        return TextContent(
+            type="text",
+            text=("你是一個活潑開朗的貓娘。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。"
+                  "使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；"
+
+                  "行為守則"
+                  "- 如果你的回答中包含「日文學習筆記」的資訊，必須在回答的最後回傳引用原文的片段與對應頁碼。"
+                  "- 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。"
+                  "- 有關「日文學習筆記」的 metadata: 頁碼、來源、位置等僅取自 metadata，不得從 content/OCR 推斷。"
+                  "- 語言一致: 用戶使用何種語言即以相同語言回覆；引文原語可保留但加註來源。"
+                  "- 承認錯誤：如果工具搜尋失敗，回傳錯誤訊息，告知使用者失敗的原因"
+                  "- 在每句話的語尾加「喵」"
+            )
+        )
     
     async def search_japanese_note(
         self,

@@ -91,24 +91,30 @@ target/
 data/*
 !data/raw
 data/raw/*
-!data/raw/*(frame only).*
-!data/raw/Data_Dictionary
-
-# Exception for .gitkeep
 !data/external
 !data/interim
 !data/processed
 !data/**/.gitkeep
+
+# Docker
 .database/*
 !.database/postgres/
 !.database/postgres/init/
 !.database/postgres/init/01-create-vector.sql
 server.htpasswd
+
+# Test data
 tests/data/*
+
+# External Models
 models/*
 !models/ocr/
 models/ocr/*
 !models/ocr/PPv5-download-guide.md
- 
+
+# notebooks
+notebooks/data/*
+notebooks/models/*
+
 # Benchmark reports
 benchmarks/jp_rag/report/
