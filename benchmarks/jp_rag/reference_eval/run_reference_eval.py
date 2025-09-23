@@ -2,53 +2,31 @@
 @File    :  run_reference_eval.py
 @Time    :  2025/09/10 00:00:00
 @Author  :  Kevin Wang
-@Desc    :  JP RAG 線上（Online）基準評估。透過 JapaneseLearningRAGServer 的 `retrieve_chunks` 檢索，
-           用 `ContextRelevanceEval` 執行評測，並輸出逐列結果 CSV 與整體/分組平均的 JSON meta。
-
-設計準則（必讀）：
-    - 檢索入口唯一：僅呼叫 `retrieve_chunks`（不啟動 MCP），同程序 direct-call 減少變因；本腳本自行從 Chunk 取 `content`。
-    - 評測入口唯一：僅呼叫 `ContextRelevanceEval.evaluate(dataset)`，不得使用任何私有屬性或子指標。
-    - 場景固定三類：embedding（query 有、keywords 空）、keywords（query 空、keywords 有）、mix（兩者皆有）。
-    - Context 來源契約：本腳本使用 `retrieve_chunks` 回傳之 `List[Chunk]`，並以 `ch.content` 構成 `retrieved_contexts`；不解析文字輸出。
-    - I/O 收斂：輸出一個 CSV（逐列結果）與一個 JSON（含 overall 與 by-type averages）。
-
-資料集格式（每行一筆 JSON）：
-    - query:     str，使用者問題
-    - keywords:  List[str]，可為空，固定中/日對應詞（如「奧運」「オリンピック」）
-    - reference: str，標準答案
-
-執行說明：
-    - 需在 .env 設定 OPEN_AI_API（沿用現有程式命名）。
-    - 執行：PYTHONPATH=src pipenv run python benchmarks/jp_rag/reference_eval/run_reference_eval.py
-
-輸出說明：
-    - CSV：每筆原始資料會展開為 3 列（embedding/keywords/mix）。
-    - JSON：
-        - rows_original：原始資料筆數（未展開）。
-        - rows_expanded：展開後的列數（= rows_original * 3）。
-        - averages / averages_by_type：僅對數值指標欄位取平均（排除 line_no 等非指標欄）。
-
-介面相依：
-    - `ContextRelevanceEval.evaluate` 必須回傳帶有 `.to_pandas()` 的結果物件（EvaluationResult）。若非此行為，腳本會直接失敗。
+@Desc    :  
 """
 
-from pathlib import Path
-import asyncio
-
-import json
 from datetime import datetime
-from typing import Generator,Any,List,Tuple,TypedDict,Literal
+from pathlib import Path
+from typing import (Any,
+                    Generator,
+                    List,
+                    Literal,
+                    Tuple,
+                    TypedDict,
+                    )
+import asyncio
+import json
+import warnings
 
 from dotenv import load_dotenv
-
+import numpy as np
+import pandas as pd
 
 from evaluation.utils import EvalTools
 from evaluation.context_relevance import ContextRelevanceEval
 from mcp_server.jp_learning_rag import JapaneseLearningRAGServer
-import pandas as pd
+
 load_dotenv()
-
-
 
 class MetaRow(TypedDict):
     """Meta 列描述。
@@ -162,6 +140,22 @@ class ReferenceEvalRunner:
                                        ),
             )
 
+            # 確保資料庫不為空，且 Retriever 能正常運作
+            if len(emb_chunks) == 0:
+                raise RuntimeError(f"Vector database retrieved no chunk with query: {data['query']}")
+            if len(kw_chunks) == 0:
+                raise RuntimeError(f"Lexical database retrieved no chunk with keywords: {data['keywords']}")
+            if len(mix_chunks) == 0:
+                raise RuntimeError("Both vector and lexical database retrieved no chunk."
+                                   f" query: {data['query']} & keywords: {data['keywords']}"
+                                   )
+            
+            # 若檢索到空內容的 Chunk，則只需要 warning，流程繼續
+            for ch in emb_chunks + kw_chunks + mix_chunks:
+                if not ch.content:
+                    warnings.warn(f"Chunk {ch.id} is with empty content")
+
+
             built_metas.append({"line_no": data['line_no'], "eval_type":  "embedding"})
             built_dataset.append({"user_input": data['query'],
                                   "retrieved_contexts": [ch.content for ch in emb_chunks],
@@ -200,7 +194,7 @@ class ReferenceEvalRunner:
     def _aggregate(self,
                    metas:List[MetaRow],
                    df_data:pd.DataFrame,
-                   ) -> Tuple[pd.DataFrame,pd.DataFrame,pd.DataFrame,List[str]]:
+                   ) -> Tuple[pd.DataFrame,pd.DataFrame,pd.DataFrame,List[str],dict[str,int]]:
         """合併結果並計算整體與分組平均。
 
         Args:
@@ -208,14 +202,19 @@ class ReferenceEvalRunner:
             df_data: 指標結果的 DataFrame 資料。
 
         Returns:
-            Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[str]]: 依序為合併表、整體平均、分組平均、數值欄位名單。
+            Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[str], dict[str,int]]: 依序為合併表、整體平均、分組平均、數值欄位名單、各數值欄位參與樣本數。
         """
         df_meta = pd.DataFrame(metas)
         df = pd.concat([df_meta, df_data], axis=1)
         numeric_cols = [c for c in df.select_dtypes(include=["number"]).columns.tolist() if c not in ("line_no",)]
-        avg_df:pd.DataFrame = pd.DataFrame([df[numeric_cols].mean(numeric_only=True)])
-        group_avg_df:pd.DataFrame = df.groupby("eval_type")[numeric_cols].mean().reset_index()
-        return df, avg_df, group_avg_df, numeric_cols
+        numeric_df = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+        numeric_df = numeric_df.replace([np.inf, -np.inf], np.nan)
+        valid_counts_series = numeric_df.notna().sum()
+        avg_df:pd.DataFrame = pd.DataFrame([numeric_df.mean(numeric_only=True)])
+        group_numeric = numeric_df.copy()
+        group_numeric["eval_type"] = df["eval_type"]
+        group_avg_df:pd.DataFrame = group_numeric.groupby("eval_type", dropna=False).mean(numeric_only=True).reset_index()
+        return df, avg_df, group_avg_df, numeric_cols, {k:int(v) for k, v in valid_counts_series.to_dict().items()}
 
     def _save_reports(self,
                       df:pd.DataFrame,
@@ -223,6 +222,7 @@ class ReferenceEvalRunner:
                       group_avg_df:pd.DataFrame,
                       numeric_cols:List[str],
                       metas:List[MetaRow],
+                      valid_counts:dict[str,int],
                       ) -> None:
         """輸出 CSV 與 JSON 報表。
 
@@ -232,6 +232,7 @@ class ReferenceEvalRunner:
             group_avg_df: 依 `eval_type` 分組的平均。
             numeric_cols: 參與平均計算的數值欄位。
             metas: Meta 列資料（用於 rows_original 計算）。
+            valid_counts: 每個數值欄位的有效樣本數。
         """
         self.report_dir.mkdir(parents=True, exist_ok=True)
         ts:str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -239,10 +240,12 @@ class ReferenceEvalRunner:
         meta_json = self.report_dir / f"eval_meta_{ts}.json"
         df.to_csv(result_csv, index=False)
 
-        averages = {k: float(v) for k, v in avg_df.iloc[0].to_dict().items()}
+        averages = {}
+        for k, v in avg_df.iloc[0].to_dict().items():
+            averages[k] = float(v) if pd.notna(v) else None
         averages_by_type = {}
         for _, row in group_avg_df.iterrows():
-            averages_by_type[row["eval_type"]] = {k: float(row[k]) for k in numeric_cols}
+            averages_by_type[row["eval_type"]] = {k: (float(row[k]) if pd.notna(row[k]) else None) for k in numeric_cols}
         rows_expanded = len(df)
         rows_original = len({m["line_no"] for m in metas})
         with open(meta_json, "w", encoding="utf-8") as file:
@@ -254,6 +257,7 @@ class ReferenceEvalRunner:
                        "result_csv": str(result_csv),
                        "averages": averages,
                        "averages_by_type": averages_by_type,
+                       "valid_counts": {k: int(v) for k, v in valid_counts.items()},
                        }, file, ensure_ascii=False, indent=4)
         print(f"[INFO] reports saved: {result_csv} and {meta_json}")
 
@@ -261,12 +265,12 @@ class ReferenceEvalRunner:
         """執行完整評測流程並輸出結果。"""
         metas, rows = asyncio.run(self._build_rows())
         df_data = self._evaluate(rows)
-        df, avg_df, group_avg_df, numeric_cols = self._aggregate(metas, df_data)
+        df, avg_df, group_avg_df, numeric_cols, valid_counts = self._aggregate(metas, df_data)
         print("[INFO] metric averages:")
         print(avg_df)
         print("[INFO] metric averages by eval_type:")
         print(group_avg_df)
-        self._save_reports(df, avg_df, group_avg_df, numeric_cols, metas)
+        self._save_reports(df, avg_df, group_avg_df, numeric_cols, metas, valid_counts)
 
 
 if __name__ == "__main__":

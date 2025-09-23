@@ -48,7 +48,6 @@ def test_eval_without_reference_runs():
         SingleTurnSample(
             user_input="Where is the Eiffel Tower located?",
             retrieved_contexts=["The Eiffel Tower is located in Paris."],
-            response="The Eiffel Tower is located in Paris.",
         )
     ]
     dataset = EvaluationDataset(samples=samples)

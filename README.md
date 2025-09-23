@@ -37,28 +37,62 @@
       }
       ```
 
-### cURL 範例（最小）
+### cURL 範例
 
 ```bash
-# 列出可用工具
-curl -sS -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"tags":["all"]}' \
-  http://localhost:56485/tools | jq
 
-# 呼叫 search_japanese_note
-curl -sS -X POST \
+# 建立連線，獲取 Session ID
+$ curl -i -sS -N http://localhost:56481/mcp \
+  -H 'Accept: application/json, text/event-stream' \
   -H 'Content-Type: application/json' \
   -d '{
-        "tool_name": "search_japanese_note",
-        "args": {
-          "query": "請解釋日本舉辦奧運的相關資訊",
-          "keywords": ["奧運", "オリンピック"],
-          "top_embedding_k": 3,
-          "top_keyword_k": 3
-        }
-      }' \
-  http://localhost:56485/call | jq
+    "jsonrpc":"2.0",
+    "id":"1",
+    "method":"initialize",
+    "params":{
+      "protocolVersion":"2025-06-18",
+      "clientInfo":{"name":"curl","version":"8"},
+      "capabilities":{"sampling":{}, "roots":{"listChanged":true}}
+    }
+  }'
+
+
+# 完成初始化
+curl -sS -X POST http://localhost:56481/mcp \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-06-18' \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+# 列工具
+curl -sS -X POST http://localhost:56481/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -H 'MCP-Protocol-Version: 2025-06-18' \
+  -H 'Mcp-Session-Id: $SESSION_ID' \
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/list"}'
+
+# 呼叫 search_japanese_note
+curl -sS -X POST http://localhost:56481/mcp \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Content-Type: application/json' \
+  -H 'MCP-Protocol-Version: 2025-06-18' \
+  -H 'Mcp-Session-Id: $SESSION_ID' \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":"3",
+    "method":"tools/call",
+    "params":{
+      "name":"search_japanese_note",
+      "arguments":{
+        "query":"奧運是什麼？",
+        "keywords":["奧運","オリンピック"],
+        "top_embedding_k":3,
+        "top_keyword_k":3
+      }
+    }
+  }'
 ```
 
 ## 功能特色

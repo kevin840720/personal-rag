@@ -2,7 +2,13 @@
 @File    :  context_relevance.py
 @Time    :  2025/09/10 19:27:08
 @Author  :  Kevin Wang
-@Desc    :  https://docs.ragas.io/en/v0.3.2/howtos/integrations/griptape/?h=contextrelevance#evaluating-retrieval
+@Desc    :  評估檢索階段品質。
+
+Metrics:
+    - ContextRelevance：檢驗回傳的文本內容(retrieved_contexts)是否貼合提問(query)。評分只有 0.0/0.5/1.0 三檔，只需要 user_input、retrieved_contexts。
+    - LLMContextPrecisionWithReference：對每個 retrieved_context，用 LLM 判斷該 retrieved_contexts 是否支撐 reference，最後計算平均。需要 user_input、retrieved_contexts、reference。
+    - LLMContextPrecisionWithoutReference（未使用）：用 response 取代 LLMContextPrecisionWithReference 中的 reference。需要 user_input、retrieved_contexts、response。（我覺得沒啥用）
+    - LLMContextRecall：將 reference 拆成數個 statements，再用 LLM 判斷哪些敘述能被 retrieved_contexts 支撐。需要 user_input、retrieved_contexts、reference。
 """
 
 from typing import List
@@ -12,7 +18,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from ragas.metrics import (ContextRelevance,
                            LLMContextPrecisionWithReference,
-                           LLMContextPrecisionWithoutReference,
                            LLMContextRecall,
                            )
 from ragas import (EvaluationDataset,
@@ -25,7 +30,6 @@ from ragas.dataset_schema import (EvaluationResult,
                                   )
 
 from evaluation.errors import EvaluationDatasetError
-from evaluation.utils import RagasPatch
 from logging_.logger import get_logger
 
 
@@ -133,16 +137,14 @@ class ContextRelevanceEvalWithoutReference:
             api_key: OpenAI API 金鑰，預設讀取 `OPEN_AI_API`。
 
         備註:
-            - 此評估器包含兩個指標：`ContextRelevance`、`LLMContextPrecisionWithoutReference`。
-            - 以 LLM 判斷 context 是否支撐系統當前 `response`，不依賴人工黃金標註。
+            - 此評估器包含一個指標：`ContextRelevance`。
         """
         self._llm = ChatOpenAI(model=model,
                                api_key=api_key,
                                temperature=0.0,
                                )
         self._evaluator_llm = LangchainLLMWrapper(self._llm)
-        self._metrics = [ContextRelevance(llm=self._evaluator_llm),                     # 檢索結果到底有沒有真的回應使用者的問題？
-                         LLMContextPrecisionWithoutReference(llm=self._evaluator_llm),  # 使用用系統 response 當 proxy，LLM 判斷 context 是否支撐 response。
+        self._metrics = [ContextRelevance(llm=self._evaluator_llm),                  # 檢索結果到底有沒有真的回應使用者的問題？
                          ]
         self._max_workers = max_workers
 
@@ -157,8 +159,7 @@ class ContextRelevanceEvalWithoutReference:
         Raises:
             EvaluationDatasetError: 當資料集載入失敗、為空、或任一筆樣本缺以下欄位時：
                 - `user_input` 缺失或為空。
-                - `retrieved_contexts` 非非空的 List。
-                - `response` 缺失或為空字串。
+                - `retrieved_contexts` 非空的 List。
         """
         try:
             samples:List[SingleTurnSample] = dataset.samples
@@ -172,14 +173,11 @@ class ContextRelevanceEvalWithoutReference:
             # 檢查資料集是否完整，應包含
             #   - user_input：使用者輸入
             #   - retrieved_contexts：透過 RAG 獲得的文件
-            #   - response：LLM 回應
             if not sample.user_input:
                 raise EvaluationDatasetError(f"row {idx} missing 'user_input'")
             rc = sample.retrieved_contexts
             if not isinstance(rc, list) or len(rc) == 0:
                 raise EvaluationDatasetError(f"row {idx} 'retrieved_contexts' must be non-empty list")
-            if not (isinstance(sample.response, str) and sample.response.strip()):
-                raise EvaluationDatasetError(f"row {idx} missing 'response'")
 
     def evaluate(self, dataset:EvaluationDataset) -> EvaluationResult:
         """執行兩項檢索評估（無 reference 版本）。
