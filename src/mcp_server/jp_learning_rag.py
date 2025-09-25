@@ -8,21 +8,22 @@
 
 import os
 import asyncio
-from typing import Annotated, List, Optional
+from typing import (Annotated,
+                    List,
+                    )
 
 from dotenv import load_dotenv
 from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.prompts import Prompt
 from mcp.types import TextContent
 
 from cache.redis import RedisCacheHandler
 from embedding.openai_embed import OpenAIEmbeddingModel
 from infra.stores.pgvector import PGVectorStore
 from infra.stores.elasticsearch import ElasticsearchBM25Store
-from infra.stores.base import VectorIndexStore, SearchHit
 from objects import Chunk
+from monitoring.langfuse_client import get_langfuse_client, observe_if_enabled
 
 load_dotenv()
 
@@ -69,9 +70,13 @@ class JapaneseLearningRAGServer:
         )
 
         # 註冊工具
-        self.mcp.add_tool(self.search_japanese_note)
         self.mcp.add_tool(self.japanese_note_reply_instruction)
+        self.mcp.add_tool(self.search_japanese_note)
 
+    @observe_if_enabled(name="mcp.JapaneseLearningRAGServer.retrieve_chunks",
+                        capture_input=True,
+                        capture_output=True,
+                        )
     async def retrieve_chunks(self,
                                *,
                                query:str,
@@ -116,6 +121,10 @@ class JapaneseLearningRAGServer:
 
         return list(unique.values())
 
+    @observe_if_enabled(name="mcp.JapaneseLearningRAGServer.japanese_note_reply_instruction",
+                        capture_input=False,
+                        capture_output=True,
+                        )
     def japanese_note_reply_instruction(self) -> str: 
         """
         工具用途：
@@ -130,7 +139,7 @@ class JapaneseLearningRAGServer:
             - 不得自行編造文件條文或規範。
             - 若完全沒有檢索結果，回覆「未找到相關文件」。
         """
-        return TextContent(
+        instructions = TextContent(
             type="text",
             text=("（回覆必須以 Markdown 輸出，架構如下：）"
                   "（簡短回答）\n"
@@ -145,21 +154,12 @@ class JapaneseLearningRAGServer:
                   "（如果資料來源超過三處，在最後一段進行彙整，否則移除此段）\n"
                   )
         )
-        return TextContent(
-            type="text",
-            text=("你是一個活潑開朗的貓娘。你的工作是提供以簡單易懂的方式講述有關日文文法、文化等內容。"
-                  "使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；"
+        return instructions
 
-                  "行為守則"
-                  "- 如果你的回答中包含「日文學習筆記」的資訊，必須在回答的最後回傳引用原文的片段與對應頁碼。"
-                  "- 使用 search_japanese_note 工具時，參數 keywords 必填，提供 2–6 個中/日文關鍵詞；例如，當使用者詢問奧運時，「奧運」、「オリンピック」都要出現在 keywords。"
-                  "- 有關「日文學習筆記」的 metadata: 頁碼、來源、位置等僅取自 metadata，不得從 content/OCR 推斷。"
-                  "- 語言一致: 用戶使用何種語言即以相同語言回覆；引文原語可保留但加註來源。"
-                  "- 承認錯誤：如果工具搜尋失敗，回傳錯誤訊息，告知使用者失敗的原因"
-                  "- 在每句話的語尾加「喵」"
-            )
-        )
-    
+    @observe_if_enabled(name="mcp.JapaneseLearningRAGServer.search_japanese_note",
+                        capture_input=True,
+                        capture_output=True,
+                        )
     async def search_japanese_note(
         self,
         query:Annotated[str, Field(description="直接用使用者的問題進行語意搜尋")],
@@ -180,19 +180,36 @@ class JapaneseLearningRAGServer:
             - 僅檢索已索引的筆記內容；若無結果，可能是尚未收錄或關鍵詞不匹配。
             - 如果你打算搜尋資訊，你的 keyword 要翻譯成中文與日文，例如：使用者搜尋「奧運」，你在時要用「奧運」和「オリンピック」。
         """
-        chunks = await self.retrieve_chunks(query=query,
-                                             keywords=keywords,
-                                             top_embedding_k=top_embedding_k,
-                                             top_keyword_k=top_keyword_k,
-                                             )
+        client = get_langfuse_client()
+        chunks:List[Chunk]
+        if client is not None:
+            with client.start_as_current_span(name="retrieve_chunks",
+                                              input={'query': query,
+                                                     'keywords': keywords,
+                                                     'top_embedding_k': top_embedding_k,
+                                                     'top_keyword_k': top_keyword_k,
+                                                     },
+                                              ) as span:
+                chunks = await self.retrieve_chunks(query=query,
+                                                     keywords=keywords,
+                                                     top_embedding_k=top_embedding_k,
+                                                     top_keyword_k=top_keyword_k,
+                                                     )
+                span.update(output={'chunk_count': len(chunks),
+                                    'chunk_ids': [str(ch.id) for ch in chunks],
+                                    })
+        else:
+            chunks = await self.retrieve_chunks(query=query,
+                                                 keywords=keywords,
+                                                 top_embedding_k=top_embedding_k,
+                                                 top_keyword_k=top_keyword_k,
+                                                 )
 
         if not chunks:
             return TextContent(type="text", text="未找到相關文件。")
 
         lines = [
             f"找到 {len(chunks)} 個相關文件：",
-            # "提示：頁碼與來源請一律依據 metadata，不得從內容/OCR 推斷。",
-            # "     必須回傳引用原文。"
         ]
         for i, ch in enumerate(chunks, 1):
             content = ch.content

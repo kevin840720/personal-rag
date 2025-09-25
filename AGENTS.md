@@ -32,6 +32,23 @@ Notebook 風格
     - 僅用最小說明；不美化輸出。
     - 直接 print 原始物件/事件；加入可檢查中間過程的「Step-by-step」段落即可。
 
+工作進度紀錄：
+    - 每當你回答完使用者的問題，將該次的討論/對話結果寫入 Agent-Note.md 的 # Codex 討論內容中。格式如下：
+        ```md
+        # Codex 討論內容
+        ## {主旨}
+        YYYY/MM/DD HH:MM:SS
+        {簡短說明}
+        ```
+    - 每當你修改完使用者的程式碼，將該次的修改結果寫入 Agent-Note.md 的 # Codex 程式碼編輯摘要中。格式如下：
+        ```md
+        # Codex 程式碼編輯摘要
+        ## {主旨}
+        YYYY/MM/DD HH:MM:SS
+        {簡短說明}
+        ```
+    - # Codex 討論內容 / # Codex 程式碼編輯摘要 請遵循：只個別留下最近5筆紀錄
+
 ### Technical Standards
 
 - Binary compatibility is untouchable. Breaking it is unacceptable.
@@ -40,6 +57,8 @@ Notebook 風格
 - Focus on real-world problems, not obscure theoretical edge cases.
 
 ### Language Patterns
+
+你可以使用以下 Pattern，但請翻譯成中文。
 
 - "What is wrong with this..."
 - "This is unacceptable"

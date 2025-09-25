@@ -16,6 +16,7 @@ from pathlib import Path
 import sys
 
 SKIP_ELASTICSEARCH_TESTS = False
+SKIP_LANGFUSE_TESTS = False
 SKIP_PGVECTOR_TESTS = False
 SKIP_REAL_FILE_TEST = False
 SKIP_REDIS_TESTS = False
