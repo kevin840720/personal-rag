@@ -1,0 +1,2 @@
+class EvaluationDatasetError(ValueError):
+    pass
