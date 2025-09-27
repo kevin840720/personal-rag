@@ -121,7 +121,16 @@ class DoclingPDFLoader(DocumentLoader):
         pipeline_options = PdfPipelineOptions()
         if do_ocr:
             pipeline_options.do_ocr = True
-            pipeline_options.ocr_options = self._get_docling_ocr_option()
+            try:
+                pipeline_options.ocr_options = self._get_docling_ocr_option("PPv5")
+            except Exception as err_ppv5:
+                print(f"RapidOCR PPv5 initialization failed: {err_ppv5}")
+                try:
+                    pipeline_options.ocr_options = self._get_docling_ocr_option("PPv4")
+                except Exception as err_ppv4:
+                    print(f"RapidOCR PPv4 initialization failed: {err_ppv4}")
+                    pipeline_options.do_ocr = False
+                    pipeline_options.ocr_options = None
         else:
             pipeline_options.do_ocr = False
 
