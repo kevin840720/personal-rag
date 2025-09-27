@@ -64,17 +64,27 @@ class DoclingPDFLoader(DocumentLoader):
         from docling.datamodel.pipeline_options import RapidOcrOptions  # Docling 中，唯一支援中文
         
         if ocr_model == "PPv5":
-            # det, rec 模型為手動下載，參見  TODO: 改成 Github 路徑
+            # RapidOCR 官方還未支援 PPv5：必須手動下載 PPv5 模型與字典，轉成 onnx。
             print(os.getcwd())
             print("Downloading RapidOCR models")
+            det_model_path = "./models/ocr/PP-OCRv5_server_det/inference.onnx"
+            rec_model_path = "./models/ocr/PP-OCRv5_server_rec/inference.onnx"
+            rec_keys_path = "./models/ocr/PP-OCRv5_server_rec/chars.txt"
             download_path = snapshot_download(repo_id="SWHL/RapidOCR")
             cls_model_path = os.path.join(download_path, "PP-OCRv3", "ch_ppocr_mobile_v2.0_cls_train.onnx")
             ocr_options = RapidOcrOptions(lang=["english", "chinese", "japanese"],  # Docling 說這參數沒用
                                           force_full_page_ocr=False,
-                                          det_model_path="./models/ocr/PP-OCRv5_server_det/inference.onnx",
-                                          rec_model_path="./models/ocr/PP-OCRv5_server_rec/inference.onnx",
+                                          det_model_path=det_model_path,
+                                          rec_model_path=rec_model_path,
                                           cls_model_path=cls_model_path,
-                                          rec_keys_path="./models/ocr/PP-OCRv5_server_rec/chars.txt"
+                                          rec_keys_path=rec_keys_path,
+                                          # 有關 Docling v2.54.0 中，omegaconf.errors.ConfigKeyError: Missing key dict_url 的錯誤
+                                          # 原因如下：
+                                          # 1. 雖然提供了 rec_keys_path，但在 RapidOCR 內部被映射為 keys_path，get_character_dict() 找不到 rec_keys_path 而走下載路徑。
+                                          #    (參考 rapidocr.ch_ppocr_rec.main 中的 TextRecognizer，line 60)
+                                          # 2. 手動在 rapidocr_params 中指定 "Rec.rec_keys_path" 可以修復此問題。
+                                          # 3. 類似問題已在 GitHub 回報：[docling-project/docling#2249](https://github.com/docling-project/docling/discussions/2249)
+                                          rapidocr_params={"Rec.rec_keys_path": rec_keys_path},
                                           )
         elif ocr_model == "PPv4":
             # Download RappidOCR models from HuggingFace
