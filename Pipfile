@@ -31,6 +31,8 @@ duckduckgo-search = "*"
 mcpo = "*"
 paddleocr = "*"
 paddlepaddle = "*"
+ragas = "*"
+langfuse = "*"
 
 [dev-packages]
 pytest = "*"
