@@ -10,37 +10,132 @@
 
 整體串接：（OpenAPI 工具）↔ OpenWebUI ↔ MCP Server
 
+## 初始化指南
+
 ## TL;DR
 
-- 啟動（stdio，配合 mcpo/OpenAPI）
-  - `pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py`
+```bash
+# 設定專案參數
+cp .env.example .env
+# 專案環境設定：Python
+pipenv install --python 3.11
+pipenv install --dev
+# 專案環境設定：資料庫
+chmod +x docker-start-up.sh
+./docker-start-up.sh
+# 資料載入
+pipenv run env PYTHONPATH=src python src/ingest.py --path ./data/raw/sample.pdf --pg-schema Japanese-Learning
+# 啟動服務(以下則一)
+pipenv run env PYTHONPATH=src python src/app.py
+pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py
+```
 
-- 啟動（streamable-http）
-  - `pipenv run env PYTHONPATH=src python src/app.py`（預設 `http://localhost:56481/mcp`）
+### 必備環境
 
-- 若要給一般 LLM/工具平台用（HTTP JSON）
-  - 列工具：
-    - `POST http://localhost:56485/tools`
-    - Body: `{"tags":["all"]}`
-  - 呼叫工具：
-    - `POST http://localhost:56485/call`
-    - Body:
-      ```json
-      {
-        "tool_name": "search_japanese_note",
-        "args": {
-          "query": "請解釋日文的助詞",
-          "keywords": ["助詞", "助詞(じょし)", "文法"],
-          "top_embedding_k": 3,
-          "top_keyword_k": 3
-        }
-      }
-      ```
+- Python 3.11 與 `pipenv`
+- Docker 與 Docker Compose（啟動 PostgreSQL、Redis、Elasticsearch、Kibana）
+- `curl`、`jq`
+- GoodNotes/PDF OCR 需求：系統需安裝 `poppler`（匯出 `pdf2image`），另電腦需安裝對應 CUDA driver。
 
-### cURL 範例
+### 安裝依賴
 
 ```bash
+pipenv install --python 3.11
+pipenv install --dev
+```
 
+> 提醒：專案所有指令預設透過 `pipenv run` 執行，部分需要另外設定 `PYTHONPATH=src`。
+
+### 設定環境變數
+
+1. 複製範本：`cp .env.example .env`
+2. 編輯 `.env` 並填入必要值。
+
+關鍵欄位摘要：
+
+| 變數 | 說明 |
+| ---- | ---- |
+| `OPEN_AI_API` | OpenAI API Key，`text-embedding-3-small` 會使用。 |
+| `VOLUME_PATH` | Docker Volume 目錄，預設 `./.database`。腳本會複製初始化 SQL 與整理權限。 |
+| `MY_REDIS_*` | Redis 主機、埠、密碼（快取嵌入向量）。 |
+| `MY_POSTGRE_*` | PostgreSQL + pgvector 連線資訊。`JapaneseLearningRAGServer` 預設 schema 為 `Japanese-Learning`。 |
+| `MY_ELASTIC_*` | Elasticsearch 認證與位置。首次啟動後會安裝 IK Analyzer 插件。 |
+| `MY_KIBANA_PORT` | 如需 Kibana UI，保留預設即可。 |
+| `LANGFUSE_*` | （選填）啟用 Langfuse 監控。缺值時相關功能自動停用。 |
+
+### 啟動基礎服務
+
+專案提供 `docker-start-up.sh` 封裝初始化與插件設定流程。
+
+```bash
+chmod +x docker-start-up.sh
+./docker-start-up.sh            # 首次啟動或需要安裝/更新 IK 插件
+# ./docker-start-up.sh --recreate  # 需要清空 Elasticsearch 資料夾時使用
+```
+
+#### 備註：腳本內容說明
+
+- 讀取 `.env`，複製 `./.database/postgres/init/01-create-vector.sql` 至 volume，確保 pgvector extension 可用。
+- 整理 Elasticsearch 資料夾權限，再執行 `docker compose up -d`。
+- 等待初始化後自動安裝 `analysis-ik` 插件並重新啟動 Elasticsearch。
+
+驗證方式：
+
+- `docker ps` 檢查四個容器是否都在 `Up` 狀態。
+- `curl http://localhost:${MY_ELASTIC_PORT}/_cluster/health | jq` 確認 Elasticsearch 正常。
+- `psql postgresql://user:pass@localhost:${MY_POSTGRE_PORT}/${MY_POSTGRE_DB_NAME}` 查詢 schema 是否存在（`\dn` 應看到 `Japanese-Learning` 與 `ingest_catalog`）。
+
+### 匯入資料到索引 (Ingestion Pipeline)
+
+1. 將原始檔案放到 `.env` 中 `VOLUME_PATH` 之外的資料夾（例如 `data/raw/`）。
+2. 以 CLI 執行 `src/ingest.py`：
+
+```bash
+pipenv run env PYTHONPATH=src python src/ingest.py \
+  --path ./data/raw/sample.pdf \
+  --pg-schema "Japanese-Learning" \
+  --file-type goodnotes            # 可省略，會依副檔名自動判斷
+
+# 常用額外參數：
+#   --es-index japanese-learning   # 預設為 schema.lower()
+#   --force-reingest               # 無視 catalog 狀態重新匯入
+```
+
+#### 備註：Ingestion Pipeline 行為說明
+
+- 在 PostgreSQL `ingest_catalog` schema 建立/更新文件紀錄。
+- 使用對應的 loader + chunker（GoodNotes 管線請參考 `src/ingestion/file_loaders/goodnotes/readme.md` 或 `notebooks/goodnotes.ipynb`）。
+- 產生向量後寫入 `Japanese-Learning.vector` 表，並同步文本到 Elasticsearch `japanese-learning` index。
+
+### 啟動 MCP 伺服器
+
+兩種傳輸模式可依需求選用：
+
+#### Streamable HTTP（原生 MCP 傳輸）
+
+```bash
+pipenv run env PYTHONPATH=src python src/app.py
+```
+
+- 預設監聽 `http://localhost:56481/mcp`
+- 若需調整 host/port/path，編輯 `src/app.py` 中 `JapaneseLearningRAGServer(host=..., port=...)` 與 `streamable_http_path`。
+
+#### mcpo（基於 stdio，配合 mcpo / OpenAPI 工具）
+
+```bash
+pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py
+```
+
+- `mcpo` 會將 MCP stdio 轉成 OpenAPI Tool Server，供 OpenWebUI 等客戶端掛載。
+- `--port` 為 mcpo 對外 HTTP 服務埠（預設 56485）。
+
+### 驗證服務
+
+確定服務是否正在運行
+
+#### Streamable HTTP
+
+```bash
 # 建立連線，獲取 Session ID
 $ curl -i -sS -N http://localhost:56481/mcp \
   -H 'Accept: application/json, text/event-stream' \
@@ -55,8 +150,11 @@ $ curl -i -sS -N http://localhost:56481/mcp \
       "capabilities":{"sampling":{}, "roots":{"listChanged":true}}
     }
   }'
+```
 
+成功會得到 `result.session` (此處以 `$SESSION_ID` 標註)；後續請攜帶 `Mcp-Session-Id` 呼叫 `tools/list` 與 `tools/call`。
 
+```bash
 # 完成初始化
 curl -sS -X POST http://localhost:56481/mcp \
   -H "Mcp-Session-Id: $SESSION_ID" \
@@ -95,6 +193,14 @@ curl -sS -X POST http://localhost:56481/mcp \
   }'
 ```
 
+#### OpenAPI / mcpo
+
+```bash
+curl http://localhost:56485/openapi.json | jq '.paths'
+```
+
+若能看到 `tools` 與 `call` 等路徑即代表 MCP 工具已註冊。
+
 ## 功能特色
 
 - 向量檢索 + 關鍵字檢索：
@@ -106,90 +212,19 @@ curl -sS -X POST http://localhost:56481/mcp \
   - 以 OpenAPI「工具伺服器」引入 MCP 工具
 - 評估支持：提供 RAGAS 檢索評估腳本，便於觀察檢索純度與覆蓋率
 
-## 以 Streamable HTTP 啟動（MCP 原生傳輸）
+## Appendix
 
-本專案新增了以 MCP streamable-http 傳輸啟動的 Server，方便直接用支援 MCP 的 Client 連線（例如部分 IDE 外掛、MCP Playground 等）。
+## 與 OpenWebUI 整合(限 mcpo 模式)
 
-- 入口程式：`src/app.py`
-- 預設連線位址：`http://localhost:56481/mcp`
+1. 啟動 mcpo 命令後，開啟 OpenWebUI → Settings → Tools。
+2. 點選 **Add Tool Server**，類型選 **OpenAPI**。
 
-### 需求
+## Langfuse 監控（可選）
 
-- 已安裝 `pipenv` 中套件
-- `.env` 需設定下方「環境與服務」所列變數（OpenAI、Redis、PostgreSQL、Elasticsearch）
+- 設定 `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` 後，`monitoring.langfuse_client.observe_if_enabled` 會自動包裝檢索流程。
+- 可登入 Langfuse 觀察 `mcp.JapaneseLearningRAGServer.retrieve_chunks` 與 `search_japanese_note` 的輸入輸出與執行耗時。
 
-### 啟動指令
-
-```bash
-pipenv run env PYTHONPATH=src python src/app.py
-```
-
-啟動後，Server 會以 MCP streamable-http 監聽 `localhost:56481`，路徑為 `/mcp`。
-
-### 連線方式（MCP Client）
-
-- 使用支援 MCP「streamable-http」傳輸的 Client，在其設定中填入：
-  - type/transport: `streamable-http`
-  - url: `http://localhost:56481/mcp`
-  - （如 Client 需額外欄位，依其文件填寫）
-
-可用工具：`search_japanese_note`
-- 參數：
-  - `query`（字串）：用使用者原始問題進行語意檢索
-  - `keywords`（字串陣列）：2～6 個關鍵詞，建議同時提供中日文版本（例如：`["奧運", "オリンピック"]`）
-  - `top_embedding_k`（整數，預設 3）：向量檢索數量
-  - `top_keyword_k`（整數，預設 3）：每個關鍵字的 BM25 檢索數量
-
-若需變更 host/port/path，可直接調整 `src/app.py` 建構 `JapaneseLearningRAGServer(host=..., port=...)` 與 `streamable_http_path` 的參數。
-
-## 啟動 MCP Server 並接到 Open WebUI
-
-### 需求
-
-- 已安裝 `pipenv` 中套件
-- 已安裝 `mcpo`：`pipenv install mcpo`
-- Open WebUI（具「Add Tool Server / OpenAPI」功能）
-- OpenAI API Key (用於設定 Open WebUI)
-
-### 啟動
-
-```bash
-pipenv run mcpo --port 56485 -- env PYTHONPATH=src pipenv run python src/mcp_server/jp_learning_rag.py
-```
-
-### 驗證
-
-```bash
-curl http://localhost:56485/openapi.json | jq '.paths'
-```
-
-看到有工具相關的路徑（非空）即表示正常。
-
-### 在 Open WebUI 設定
-
-1. 開啟：**Settings → Tools → Add Tool Server**  
-2. 類型：**OpenAPI**  
-3. URL：`http://localhost:56485`  
-4. 儲存後應可看到工具清單
-
-## 環境與服務
-
-- 主要環境變數（可置於 `.env` 或 shell）：
-  - OpenAI：`OPEN_AI_API`
-  - Redis：`MY_REDIS_HOST`、`MY_REDIS_PORT`、`MY_REDIS_PASSWORD`
-  - PostgreSQL/pgvector：`MY_POSTGRE_HOST`、`MY_POSTGRE_PORT`、`MY_POSTGRE_DB_NAME`、`MY_POSTGRE_USERNAME`、`MY_POSTGRE_PASSWORD`
-  - Elasticsearch：`MY_ELASTIC_HOST`、`MY_ELASTIC_PORT`、`MY_ELASTIC_USERNAME`、`MY_ELASTIC_PASSWORD`
-  - 其他：`MCP_SERVICE_URL`、`VOLUME_PATH`
-
-- 以 Docker 啟動基礎服務：
-
-```bash
-docker compose up -d
-```
-
-請先設定 `.env` 中的對應變數（特別是 `VOLUME_PATH` 與各服務連線資訊）。
-
-## 文件載入與 GoodNotes 支援
+### GoodNotes 支援說明
 
 - 針對 GoodNotes 的 PDF/圖片，提供完整 OCR 與主幹文字萃取管線：
   - 黑底手寫與白底掃描皆支援，多種前處理（反白、去色、加強灰階、顏色過濾等）
@@ -199,60 +234,70 @@ docker compose up -d
 
 ## Project Organization
 
+- Ingestion 與 catalog：`src/ingest.py`、`src/ingestion/` 內含所有 CLI 流程與 GoodNotes 管線，負責完成資料壓片、寫入 PostgreSQL 與 Elasticsearch。
+- MCP 伺服器入口：`src/app.py`、`src/mcp_server/` 封裝 RAG 查詢邏輯與對外 API，提供 streamable-http 與 mcpo 兩種啟動模式。
+- 評估工具：`src/evaluation/` 提供回答相關性、扎實度等評測腳本，搭配 notebooks/ 追蹤品質。
+- 監控與日誌：`src/monitoring/`、`src/logging_/` 紀錄 Langfuse 指標與統一 logger 設定，便於調校與排錯。
+- Notebook 範例：`notebooks/` 收集手動追蹤流程與資料前處理範例，輔助分析與除錯。
+
 ```text
 personal-rag/
-├── Pipfile                           # pipenv 依賴設定
-├── Pipfile.lock                      # 依賴版本鎖定
-├── README.md                         # 專案介紹與啟動方式
-├── __version__.py                    # 專案版本資訊
-├── conftest.py                       # pytest 共用設定
-├── docker-compose.yaml               # Docker 服務編排設定
-├── docker-start-up.sh                # 啟動 Docker 並初始化資料夾的腳本
-├── models/                           # 模型相關資源
-│   └── ocr/
-│       └── PPv5-download-guide.md    # OCR 模型下載說明
-├── notebooks/                        # Jupyter 筆記本範例
-│   ├── example.ipynb                 # 基本示範
-│   ├── file_loader.ipynb             # 檔案載入流程示例
-│   └── goodnotes.ipynb               # Goodnotes 筆記處理範例
-└── src/                              # 主要程式碼
-    ├── base.py                       # 預留基底模組
-    ├── cache/                        # 快取模組
-    │   ├── base.py                   # 快取處理器介面
-    │   ├── errors.py                 # 快取相關錯誤定義
-    │   └── redis.py                  # Redis 快取實作
-    ├── chunking/                     # 分塊處理
-    │   ├── base.py                   # 分塊處理器介面
-    │   └── docling.py                # Docling 分塊與合併邏輯
-    ├── embedding/                    # 向量嵌入
-    │   ├── base.py                   # Embedding 模型介面
-    │   └── openai_embed.py           # OpenAI Embedding 實作含快取
-    ├── infra/                        # 儲存與基礎設施
-    │   ├── base.py                   # 預留基底模組
-    │   └── stores/                   # 索引儲存實作
-    │       ├── base.py               # 儲存介面與 SearchHit 定義
-    │       ├── elasticsearch.py      # Elasticsearch BM25/向量索引
-    │       ├── errors.py             # 儲存層錯誤類型
-    │       └── pgvector.py           # PostgreSQL pgvector 儲存實作
-    ├── ingestion/                    # 文件載入器
-    │   ├── base.py                   # Loader 抽象類與結果模型
-    │   ├── file_loaders/             # 各式檔案載入器
-    │   │   ├── goodnotes.py          # Goodnotes 輸出的 PDF/圖片載入
-    │   │   └── file_loaders/goodnotes/  # GoodNotes OCR 管線與工具
-    │   │       ├── loader.py         # 端到端載入器（可插拔 DET/REC）
-    │   │       ├── pipeline.py       # 背景判定、前處理、偵測/辨識、分群
-    │   │       ├── ops.py            # 影像處理原子操作
-    │   │       └── readme.md         # GoodNotes 流程與使用說明
-    │   │   ├── image.py              # 影像載入與 OCR
-    │   │   ├── markdown.py           # Markdown 載入
-    │   │   ├── office_docx.py        # DOCX 載入
-    │   │   ├── office_excel.py       # Excel 載入
-    │   │   └── pdf.py                # PDF 載入與 OCR/表格處理
-    │   └── utils.py                  # Docling 序列化與表格工具
-    ├── mcp_server/                   # MCP 相關服務
-    │   ├── jp_learning_rag.py        # 日文學習筆記 RAG MCP server
-    │   └── manager.py                # MCP 工具註冊與權限管理
-    └── objects.py                    # Document/Chunk 等核心資料型別
+├── Pipfile                         # pipenv 依賴設定
+├── Pipfile.lock                    # 依賴版本鎖定
+├── README.md                       # 專案說明
+├── docker-compose.yaml             # Docker 服務編排
+├── docker-start-up.sh              # 基礎服務啟動腳本
+├── notebooks/                      # Jupyter 筆記本
+│   ├── example.ipynb
+│   ├── file_loader.ipynb
+│   └── goodnotes.ipynb             # Goodnotes 筆記 Ingest Pipeline 逐步拆解流程
+└── src/                            # 主要程式碼
+    ├── app.py                      # MCP streamable-http 入口
+    ├── cache/                      # 快取層抽象
+    │   ├── base.py                 # 快取介面定義
+    │   ├── errors.py               # 快取相關例外
+    │   └── redis.py                # Redis 快取實作
+    ├── chunking/                   # 切段策略
+    │   ├── base.py                 # 切段介面
+    │   ├── docling.py              # Docling 切段流程
+    │   └── no_chunk.py             # 無切段備用策略
+    ├── embedding/                  # 向量嵌入
+    │   ├── base.py                 # 嵌入介面
+    │   └── openai_embed.py         # OpenAI Embedding 客戶端
+    ├── evaluation/                 # 評估流程
+    │   ├── answer_relevance.py     # 回答相關性
+    │   ├── context_relevance.py    # 上下文對齊度
+    │   ├── groundedness.py         # 事實扎實度檢查
+    │   └── utils.py                # 評估工具函式
+    ├── infra/                      # 資料儲存抽象
+    │   ├── base.py                 # 儲存介面定義
+    │   └── stores/
+    │       ├── base.py             # 儲存層統一行為
+    │       ├── elasticsearch.py    # Elasticsearch 客戶端
+    │       ├── errors.py           # 儲存相關例外
+    │       └── pgvector.py         # PostgreSQL/pgvector 存取
+    ├── ingestion/                  # 檔案載入與 metadata 管線
+    │   ├── base.py                 # Ingestion 作業骨架
+    │   ├── file_loaders/
+    │   │   ├── goodnotes.py        # GoodNotes 筆記解析
+    │   │   ├── image.py            # 一般圖片 OCR
+    │   │   ├── markdown.py         # Markdown 文件載入
+    │   │   ├── office_docx.py      # Word 文件載入
+    │   │   ├── office_excel.py     # Excel 表單載入
+    │   │   └── pdf.py              # PDF 文件載入
+    │   ├── file_loaders/goodnotes/
+    │   │   ├── loader.py           # GoodNotes 專用 loader 入口
+    │   │   ├── ops.py              # 前處理與切塊操作
+    │   │   └── pipeline.py         # 完整 GoodNotes Pipeline
+    │   └── utils.py                # Ingestion 輔助函式
+    ├── ingest.py                   # Ingestion Pipeline CLI 入口
+    ├── logging_/
+    │   └── logger.py               # Logger 設定
+    ├── mcp_server/                 # MCP 伺服器實作
+    │   └── jp_learning_rag.py      # 日文筆記 RAG Server
+    ├── monitoring/                 # 遙測與追蹤
+    │   └── langfuse_client.py      # Langfuse 客戶端
+    └── objects.py                  # 核心資料型別
 ```
 <!-- 
 ## 備註
